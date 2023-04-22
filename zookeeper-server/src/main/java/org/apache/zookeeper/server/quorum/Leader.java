@@ -600,10 +600,6 @@ public class Leader extends LearnerMaster {
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
 
-            //Constructing follower connections as a Tree
-            //Store with QuorumPeerCnxTreeMap
-            buildCnxTree();
-
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
 
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
@@ -688,6 +684,13 @@ public class Leader extends LearnerMaster {
                     LOG.warn("Enough followers present. Perhaps the initTicks need to be increased.");
                 }
                 return;
+            }
+
+            //When cluster nodes are greater than 3,Constructing follower connections as a Tree
+            //Store with QuorumPeerCnxTreeMap
+            if(forwardingFollowers.size() > 2){
+                buildCnxTree();
+                LOG.info("Complete the construction of the follower structure as a Tree");
             }
 
             startZkServer();
@@ -785,21 +788,33 @@ public class Leader extends LearnerMaster {
         }
     }
 
+    //Store the connection tree, not work when the size of forwardingFollowers <= 2
+    //<child node sid,parent node sid>
     private HashMap<Long,Long> QuorumPeerCnxTreeMap = new HashMap<>();
-    private ArrayList<Long> childPeer = new ArrayList<>();
+    //not work when the size of forwardingFollowers <= 2
+    private ArrayList<LearnerHandler> childPeer = new ArrayList<>();
 
     private void buildCnxTree(){
-        List<Long> followerSidList = forwardingFollowers.stream().map(LearnerHandler::getSid).collect(Collectors.toList());
-        Long myid = self.getId();
-        int restNum = followerSidList.size();
+
+        int restNum = forwardingFollowers.size();
         int nodeNum = 2;
-        Queue<Long> parentsNode = new LinkedList<>();
-        for(int i = 0;i < Math.min(restNum,2);i++){
-            childPeer.add(followerSidList.get(i));
-            parentsNode.offer(followerSidList.get(i));
-            QuorumPeerCnxTreeMap.put(followerSidList.get(i),myid);
-            restNum --;
+
+        if (restNum <= nodeNum){
+            return;
         }
+
+        Long myid = self.getId();
+        Queue<Long> parentsNode = new LinkedList<>();
+        Iterator<LearnerHandler> it = forwardingFollowers.iterator();
+        for (int i = 0;it.hasNext() && i < 2;i++){
+            LearnerHandler lh = it.next();
+            childPeer.add(lh);
+            parentsNode.add(lh.getSid());
+            QuorumPeerCnxTreeMap.put(lh.getSid(),myid);
+            restNum--;
+        }
+
+        List<Long> followerSidList = forwardingFollowers.stream().filter(e -> !childPeer.contains(e)).map(LearnerHandler::getSid).collect(Collectors.toList());
         while(restNum != 0){
             if(restNum <= nodeNum){
                 while(restNum != 0){
