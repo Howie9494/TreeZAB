@@ -599,6 +599,10 @@ public class Leader extends LearnerMaster {
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
 
+            //Constructing follower connections as a Tree
+            //Store with QuorumPeerCnxTreeMap
+            buildCnxTree();
+
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
 
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
@@ -778,6 +782,57 @@ public class Leader extends LearnerMaster {
         } finally {
             zk.unregisterJMX(this);
         }
+    }
+
+    private HashMap<Long,Long> QuorumPeerCnxTreeMap = new HashMap<>();
+    private ArrayList<Long> childPeer = new ArrayList<>();
+
+    private void buildCnxTree(){
+        List<Long> followerSidList = forwardingFollowers.stream().map(LearnerHandler::getSid).collect(Collectors.toList());
+        Long myid = self.getId();
+        int restNum = followerSidList.size();
+        int nodeNum = 2;
+        Queue<Long> parentsNode = new LinkedList<>();
+        for(int i = 0;i < Math.min(restNum,2);i++){
+            childPeer.add(followerSidList.get(i));
+            parentsNode.offer(followerSidList.get(i));
+            QuorumPeerCnxTreeMap.put(followerSidList.get(i),myid);
+            restNum --;
+        }
+        while(restNum != 0){
+            if(restNum <= nodeNum){
+                while(restNum != 0){
+                    QuorumPeerCnxTreeMap.put(followerSidList.get(followerSidList.size() - restNum),parentsNode.poll());
+                    restNum--;
+                }
+                return;
+            }
+            if(restNum <= nodeNum * 2){
+                while(restNum != 0){
+                    Long parentId = parentsNode.poll();
+                    QuorumPeerCnxTreeMap.put(followerSidList.get(followerSidList.size() - restNum),parentId);
+                    parentsNode.offer(parentId);
+                    restNum--;
+                }
+                return;
+            }else{
+                int size = parentsNode.size();
+                for (int i = 0;i < size;i++){
+                    Long parentId = parentsNode.poll();
+                    QuorumPeerCnxTreeMap.put(followerSidList.get(followerSidList.size() - restNum),parentId);
+                    parentsNode.add(followerSidList.get(followerSidList.size() - restNum));
+                    restNum--;
+                    QuorumPeerCnxTreeMap.put(followerSidList.get(followerSidList.size() - restNum),parentId);
+                    parentsNode.add(followerSidList.get(followerSidList.size() - restNum));
+                    restNum--;
+                }
+            }
+            nodeNum *= 2;
+        }
+    }
+
+    public Long getParentPeerInTree(Long sid){
+        return QuorumPeerCnxTreeMap.get(sid);
     }
 
     boolean isShutdown;
