@@ -174,6 +174,11 @@
       <artifactId>snappy-java</artifactId>
       <scope>provided</scope>
     </dependency>
+      <dependency>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-nop</artifactId>
+          <version>1.7.2</version>
+      </dependency>
   </dependencies>
 
   <build>
