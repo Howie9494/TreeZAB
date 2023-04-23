@@ -697,12 +697,7 @@ public class Leader extends LearnerMaster {
                 buildCnxTree();
                 LOG.info("Complete the construction of the follower structure as a Tree");
 
-                for (LearnerHandler handler : forwardingFollowers) {
-                    byte[] parentCnx = new byte[8];
-                    ByteBuffer.wrap(parentCnx).putLong(getParentPeerInTree(handler.getSid()));
-                    QuorumPacket cqp = new QuorumPacket(Leader.BuildTreeCnx,zk.getZxid(),parentCnx,null);
-                    handler.queuePacket(cqp);
-                }
+                sendTreeCnxInfo();
                 LOG.info("Finish sending connection information");
             }
 
@@ -854,6 +849,18 @@ public class Leader extends LearnerMaster {
                 }
             }
             nodeNum *= 2;
+        }
+    }
+
+    /**
+     * Constructing and sending connection messages for the tree
+     */
+    private void sendTreeCnxInfo(){
+        for (LearnerHandler handler : forwardingFollowers) {
+            byte[] parentCnx = new byte[8];
+            ByteBuffer.wrap(parentCnx).putLong(getParentPeerInTree(handler.getSid()));
+            QuorumPacket cqp = new QuorumPacket(Leader.BuildTreeCnx,zk.getZxid(),parentCnx,null);
+            handler.queuePacket(cqp);
         }
     }
 
@@ -1232,7 +1239,11 @@ public class Leader extends LearnerMaster {
             lastCommitted = zxid;
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
-        sendPacketToChildPeer(qp);
+        if(forwardingFollowers.size() > 2){
+            sendPacketToChildPeer(qp);
+        }else{
+            sendPacket(qp);
+        }
         ServerMetrics.getMetrics().COMMIT_COUNT.add(1);
     }
 
@@ -1341,7 +1352,11 @@ public class Leader extends LearnerMaster {
 
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
-            sendPacketToChildPeer(pp);
+            if(forwardingFollowers.size() > 2){
+                sendPacketToChildPeer(pp);
+            }else{
+                sendPacket(pp);
+            }
         }
         ServerMetrics.getMetrics().PROPOSAL_COUNT.add(1);
         return p;
