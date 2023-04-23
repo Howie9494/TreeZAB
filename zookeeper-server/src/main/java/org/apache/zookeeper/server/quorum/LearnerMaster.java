@@ -21,6 +21,7 @@ package org.apache.zookeeper.server.quorum;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.util.HashMap;
 import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.ZKDatabase;
 import org.apache.zookeeper.server.quorum.auth.QuorumAuthServer;
@@ -75,6 +76,18 @@ public abstract class LearnerMaster {
         LOG.info("Set maxConcurrentDiffSyncs to {}", maxConcurrentDiffSyncs);
         this.maxConcurrentDiffSyncs = maxConcurrentDiffSyncs;
         learnerDiffSyncThrottler.setMaxConcurrentSyncs(maxConcurrentDiffSyncs);
+    }
+
+    //Store the connection tree, not work when the size of forwardingFollowers <= 2
+    //<child node sid,parent node sid>
+    private HashMap<Long,Long> QuorumPeerCnxTreeMap = new HashMap<>();
+
+    public void setQuorumPeerCnxTreeMap(Long childSid,Long parentSid){
+        QuorumPeerCnxTreeMap.put(childSid,parentSid);
+    }
+
+    public Long getParentPeerInTree(Long sid){
+        return QuorumPeerCnxTreeMap.get(sid);
     }
 
     /**
