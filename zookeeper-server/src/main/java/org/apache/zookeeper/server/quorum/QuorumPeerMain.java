@@ -199,6 +199,7 @@ public class QuorumPeerMain {
             quorumPeer.setCnxnFactory(cnxnFactory);
             quorumPeer.setSecureCnxnFactory(secureCnxnFactory);
             quorumPeer.setSslQuorum(config.isSslQuorum());
+            quorumPeer.setIsTreeCnxEnabled(config.getIsTreeCnxEnabled());
             quorumPeer.setUsePortUnification(config.shouldUsePortUnification());
             quorumPeer.setLearnerType(config.getPeerType());
             quorumPeer.setSyncEnabled(config.getSyncEnabled());

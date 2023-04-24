@@ -676,6 +676,11 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     protected int tickTime;
 
     /**
+     * Whether to turn on treeCnx
+     */
+    protected boolean isTreeCnxEnabled;
+
+    /**
      * Whether learners in this quorum should create new sessions as local.
      * False by default to preserve existing behavior.
      */
@@ -1726,6 +1731,21 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         this.tickTime = tickTime;
     }
 
+    /**
+     * Get the isTreeCnxEnabled
+     */
+    public boolean getIsTreeCnxEnabled(){
+        return isTreeCnxEnabled;
+    }
+
+    /**
+     * Set the isTreeCnxEnabled
+     */
+    public void setIsTreeCnxEnabled(boolean isTreeCnxEnabled){
+        LOG.info("isTreeCnxEnabled set to {}", isTreeCnxEnabled);
+        this.isTreeCnxEnabled = isTreeCnxEnabled;
+    }
+
     /** Maximum number of connections allowed from particular host (ip) */
     public int getMaxClientCnxnsPerHost() {
         if (cnxnFactory != null) {
@@ -2639,6 +2659,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         }
         quorumPeer.initConfigInZKDatabase();
         quorumPeer.setSslQuorum(config.isSslQuorum());
+        quorumPeer.setIsTreeCnxEnabled(config.getIsTreeCnxEnabled());
         quorumPeer.setUsePortUnification(config.shouldUsePortUnification());
         quorumPeer.setLearnerType(config.getPeerType());
         quorumPeer.setSyncEnabled(config.getSyncEnabled());

@@ -693,7 +693,7 @@ public class Leader extends LearnerMaster {
 
             //When cluster nodes are greater than 3,Constructing follower connections as a Tree
             //Store with QuorumPeerCnxTreeMap
-            if(forwardingFollowers.size() > 2){
+            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > 2){
                 buildCnxTree();
                 LOG.info("Complete the construction of the follower structure as a Tree");
 
@@ -1239,7 +1239,7 @@ public class Leader extends LearnerMaster {
             lastCommitted = zxid;
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
-        if(forwardingFollowers.size() > 2){
+        if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > 2){
             sendPacketToChildPeer(qp);
         }else{
             sendPacket(qp);
@@ -1352,7 +1352,7 @@ public class Leader extends LearnerMaster {
 
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
-            if(forwardingFollowers.size() > 2){
+            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > 2){
                 sendPacketToChildPeer(pp);
             }else{
                 sendPacket(pp);

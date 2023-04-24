@@ -80,6 +80,8 @@ public class QuorumPeerConfig {
     protected String dynamicConfigFileStr = null;
     protected String configFileStr = null;
     protected int tickTime = ZooKeeperServer.DEFAULT_TICK_TIME;
+    /** TreeCnx is enabled by default and needs to be set to false in all services in order to function properly */
+    protected boolean isTreeCnxEnabled = true;
     protected int maxClientCnxns = 60;
     /** defaults to -1 if not set explicitly */
     protected int minSessionTimeout = -1;
@@ -308,6 +310,8 @@ public class QuorumPeerConfig {
                 clientPortListenBacklog = Integer.parseInt(value);
             } else if (key.equals("tickTime")) {
                 tickTime = Integer.parseInt(value);
+            } else if (key.equals("isTreeCnxEnabled")){
+                isTreeCnxEnabled = parseBoolean(key,value);
             } else if (key.equals("maxClientCnxns")) {
                 maxClientCnxns = Integer.parseInt(value);
             } else if (key.equals("minSessionTimeout")) {
@@ -821,6 +825,11 @@ public class QuorumPeerConfig {
     public int getTickTime() {
         return tickTime;
     }
+
+    public boolean getIsTreeCnxEnabled(){
+        return isTreeCnxEnabled;
+    }
+
     public int getMaxClientCnxns() {
         return maxClientCnxns;
     }
