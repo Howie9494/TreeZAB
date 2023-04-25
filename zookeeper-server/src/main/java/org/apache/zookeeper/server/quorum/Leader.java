@@ -691,9 +691,9 @@ public class Leader extends LearnerMaster {
                 return;
             }
 
-            //When cluster nodes are greater than 3,Constructing follower connections as a Tree
+            //When cluster follower nodes are greater than INITIAL_TREE_FORK,Constructing follower connections as a Tree
             //Store with QuorumPeerCnxTreeMap
-            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > 2){
+            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > INITIAL_TREE_FORK){
                 buildCnxTree();
                 LOG.info("Complete the construction of the follower structure as a Tree");
 
@@ -796,13 +796,14 @@ public class Leader extends LearnerMaster {
         }
     }
 
-    //not work when the size of forwardingFollowers <= 2
-    private ArrayList<LearnerHandler> childPeer = new ArrayList<>();
+    private static final int INITIAL_TREE_FORK = 2;
+    //not work when the size of forwardingFollowers <= INITIAL_TREE_FORK
+    private ArrayList<LearnerHandler> childPeer = new ArrayList<>(INITIAL_TREE_FORK);
 
     private void buildCnxTree(){
 
         int restNum = forwardingFollowers.size();
-        int nodeNum = 2;
+        int nodeNum = INITIAL_TREE_FORK;
 
         if (restNum <= nodeNum){
             return;
@@ -811,7 +812,7 @@ public class Leader extends LearnerMaster {
         Long myid = self.getId();
         Queue<Long> parentsNode = new LinkedList<>();
         Iterator<LearnerHandler> it = forwardingFollowers.iterator();
-        for (int i = 0;it.hasNext() && i < 2;i++){
+        for (int i = 0;it.hasNext() && i < nodeNum;i++){
             LearnerHandler lh = it.next();
             childPeer.add(lh);
             parentsNode.add(lh.getSid());
@@ -828,7 +829,7 @@ public class Leader extends LearnerMaster {
                 }
                 return;
             }
-            if(restNum <= nodeNum * 2){
+            if(restNum <= nodeNum * INITIAL_TREE_FORK){
                 while(restNum != 0){
                     Long parentId = parentsNode.poll();
                     setQuorumPeerCnxTreeMap(followerSidList.get(followerSidList.size() - restNum),parentId);
@@ -848,7 +849,7 @@ public class Leader extends LearnerMaster {
                     restNum--;
                 }
             }
-            nodeNum *= 2;
+            nodeNum *= INITIAL_TREE_FORK;
         }
     }
 
@@ -1239,7 +1240,7 @@ public class Leader extends LearnerMaster {
             lastCommitted = zxid;
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
-        if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > 2){
+        if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > INITIAL_TREE_FORK){
             sendPacketToChildPeer(qp);
         }else{
             sendPacket(qp);
@@ -1352,7 +1353,7 @@ public class Leader extends LearnerMaster {
 
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
-            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > 2){
+            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > INITIAL_TREE_FORK){
                 sendPacketToChildPeer(pp);
             }else{
                 sendPacket(pp);
