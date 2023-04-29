@@ -796,11 +796,8 @@ public class Leader extends LearnerMaster {
      * Calculate the initial length of the quorumPeerCnxTreeList
      */
     private int calLength(int num){
-        int arrayLength = 2;
-        if(num == 2){
-            return 3;
-        }
-        while(num > arrayLength){
+        int arrayLength = INITIAL_TREE_FORK;
+        while(num >= arrayLength){
             arrayLength <<= 1;
         }
         return arrayLength - 1;
@@ -818,11 +815,40 @@ public class Leader extends LearnerMaster {
                 nodeNum = INITIAL_TREE_FORK;
                 quorumPeerCnxTreeList[0] = self.getId();
             }
-            buildCnxTree(handler);
+            if(self.getView().size() <= 3){
+                buildSpecialCnxTree(handler);
+            }else{
+                buildCnxTree(handler);
+            }
             LOG.info("Complete the construction of the follower structure as a Tree,{} parent node is {}",handler.getSid(),getParentPeerInTree(handler.getSid()));
 
             sendTreeCnxInfo(handler);
             LOG.info("Finish sending connection information to {}",handler.getSid());
+        }
+    }
+
+    /**
+     * Add the incoming learnerHandler to the special CnxTree (chain)
+     */
+    private void buildSpecialCnxTree(LearnerHandler handler){
+        ReentrantLock lock = new ReentrantLock();
+        Long myid = self.getId();
+
+        try {
+            lock.lock();
+            int treeNodeNum = getQuorumPeerCnxTreeMapSize() + 1;
+            int curNodeNum = treeNodeNum + 1;
+            if(curNodeNum == 2){
+                childPeer.add(handler);
+                quorumPeerCnxTreeList[curNodeNum - 1] = handler.getSid();
+                setQuorumPeerCnxTreeMap(handler.getSid(),myid);
+                return;
+            }
+            Long curSid = handler.getSid();
+            quorumPeerCnxTreeList[curNodeNum - 1] = curSid;
+            setQuorumPeerCnxTreeMap(curSid,quorumPeerCnxTreeList[1]);
+        } finally {
+            lock.unlock();
         }
     }
 
