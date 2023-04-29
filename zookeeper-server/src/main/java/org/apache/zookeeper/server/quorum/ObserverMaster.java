@@ -152,6 +152,11 @@ public class ObserverMaster extends LearnerMaster implements Runnable {
     }
 
     @Override
+    void addCnxTreeNode(LearnerHandler handler) {
+        //For leader only to build the tree cluster, nothing needs to be done here.
+    }
+
+    @Override
     public void addLearnerHandler(LearnerHandler learnerHandler) {
         if (!listenerRunning) {
             throw new RuntimeException(("ObserverMaster is not running"));

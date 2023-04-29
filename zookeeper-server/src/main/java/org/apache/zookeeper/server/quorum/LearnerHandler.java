@@ -553,6 +553,8 @@ public class LearnerHandler extends ZooKeeperThread {
             // startForwarding() will be called in all cases
             boolean needSnap = syncFollower(peerLastZxid, learnerMaster);
 
+            learnerMaster.addCnxTreeNode(this);
+
             // syncs between followers and the leader are exempt from throttling because it
             // is importatnt to keep the state of quorum servers up-to-date. The exempted syncs
             // are counted as concurrent syncs though

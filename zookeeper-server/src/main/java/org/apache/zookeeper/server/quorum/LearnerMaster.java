@@ -21,7 +21,8 @@ package org.apache.zookeeper.server.quorum;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketAddress;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.ZKDatabase;
 import org.apache.zookeeper.server.quorum.auth.QuorumAuthServer;
@@ -80,10 +81,14 @@ public abstract class LearnerMaster {
 
     //Store the connection tree, not work when the size of forwardingFollowers <= 2
     //<child node sid,parent node sid>
-    private HashMap<Long,Long> QuorumPeerCnxTreeMap = new HashMap<>();
+    private ConcurrentHashMap<Long,Long> QuorumPeerCnxTreeMap = new ConcurrentHashMap<>();
 
     public void setQuorumPeerCnxTreeMap(Long childSid,Long parentSid){
         QuorumPeerCnxTreeMap.put(childSid,parentSid);
+    }
+
+    public int getQuorumPeerCnxTreeMapSize(){
+        return QuorumPeerCnxTreeMap.size();
     }
 
     public Long getParentPeerInTree(Long sid){
@@ -105,6 +110,12 @@ public abstract class LearnerMaster {
     public LearnerSyncThrottler getLearnerDiffSyncThrottler() {
         return learnerDiffSyncThrottler;
     }
+
+    /**
+     * Add learnerhandler to TreeCnx as a node
+     * @param learnerHandler add as a node of TreeCnx
+     */
+    abstract void addCnxTreeNode(LearnerHandler learnerHandler);
 
     /**
      * start tracking a learner handler

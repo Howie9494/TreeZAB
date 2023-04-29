@@ -52,6 +52,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import javax.security.sasl.SaslException;
 import org.apache.zookeeper.KeeperException;
@@ -691,16 +692,6 @@ public class Leader extends LearnerMaster {
                 return;
             }
 
-            //When cluster follower nodes are greater than INITIAL_TREE_FORK,Constructing follower connections as a Tree
-            //Store with QuorumPeerCnxTreeMap
-            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > INITIAL_TREE_FORK){
-                buildCnxTree();
-                LOG.info("Complete the construction of the follower structure as a Tree");
-
-                sendTreeCnxInfo();
-                LOG.info("Finish sending connection information");
-            }
-
             startZkServer();
 
             /**
@@ -797,72 +788,81 @@ public class Leader extends LearnerMaster {
     }
 
     private static final int INITIAL_TREE_FORK = 2;
-    //not work when the size of forwardingFollowers <= INITIAL_TREE_FORK
-    private ArrayList<LearnerHandler> childPeer = new ArrayList<>(INITIAL_TREE_FORK);
+    private ArrayList<LearnerHandler> childPeer;
+    private Long[] quorumPeerCnxTreeList;
+    private int nodeNum;
 
-    private void buildCnxTree(){
-
-        int restNum = forwardingFollowers.size();
-        int nodeNum = INITIAL_TREE_FORK;
-
-        if (restNum <= nodeNum){
-            return;
+    /**
+     * Calculate the initial length of the quorumPeerCnxTreeList
+     */
+    private int calLength(int num){
+        int arrayLength = 2;
+        if(num == 2){
+            return 3;
         }
-
-        Long myid = self.getId();
-        Queue<Long> parentsNode = new LinkedList<>();
-        Iterator<LearnerHandler> it = forwardingFollowers.iterator();
-        for (int i = 0;it.hasNext() && i < nodeNum;i++){
-            LearnerHandler lh = it.next();
-            childPeer.add(lh);
-            parentsNode.add(lh.getSid());
-            setQuorumPeerCnxTreeMap(lh.getSid(),myid);
-            restNum--;
+        while(num > arrayLength){
+            arrayLength <<= 1;
         }
+        return arrayLength - 1;
+    }
 
-        List<Long> followerSidList = forwardingFollowers.stream().filter(e -> !childPeer.contains(e)).map(LearnerHandler::getSid).collect(Collectors.toList());
-        while(restNum != 0){
-            if(restNum <= nodeNum){
-                while(restNum != 0){
-                    setQuorumPeerCnxTreeMap(followerSidList.get(followerSidList.size() - restNum),parentsNode.poll());
-                    restNum--;
-                }
-                return;
+    @Override
+    public void addCnxTreeNode(LearnerHandler handler){
+        //When cluster follower nodes are greater than INITIAL_TREE_FORK,Constructing follower connections as a Tree
+        //Store with QuorumPeerCnxTreeMap
+        if(self.getIsTreeCnxEnabled()){
+            //Initialised when nodes are first added
+            if(getQuorumPeerCnxTreeMapSize() == 0){
+                childPeer = new ArrayList<>(INITIAL_TREE_FORK);
+                quorumPeerCnxTreeList = new Long[calLength(self.getView().size())];
+                nodeNum = INITIAL_TREE_FORK;
+                quorumPeerCnxTreeList[0] = self.getId();
             }
-            if(restNum <= nodeNum * INITIAL_TREE_FORK){
-                while(restNum != 0){
-                    Long parentId = parentsNode.poll();
-                    setQuorumPeerCnxTreeMap(followerSidList.get(followerSidList.size() - restNum),parentId);
-                    parentsNode.offer(parentId);
-                    restNum--;
-                }
-                return;
-            }else{
-                int size = parentsNode.size();
-                for (int i = 0;i < size;i++){
-                    Long parentId = parentsNode.poll();
-                    setQuorumPeerCnxTreeMap(followerSidList.get(followerSidList.size() - restNum),parentId);
-                    parentsNode.add(followerSidList.get(followerSidList.size() - restNum));
-                    restNum--;
-                    setQuorumPeerCnxTreeMap(followerSidList.get(followerSidList.size() - restNum),parentId);
-                    parentsNode.add(followerSidList.get(followerSidList.size() - restNum));
-                    restNum--;
-                }
-            }
-            nodeNum *= INITIAL_TREE_FORK;
+            buildCnxTree(handler);
+            LOG.info("Complete the construction of the follower structure as a Tree,{} parent node is {}",handler.getSid(),getParentPeerInTree(handler.getSid()));
+
+            sendTreeCnxInfo(handler);
+            LOG.info("Finish sending connection information to {}",handler.getSid());
         }
     }
 
     /**
-     * Constructing and sending connection messages for the tree
+     * Add the incoming learnerHandler to the CnxTree
      */
-    private void sendTreeCnxInfo(){
-        for (LearnerHandler handler : forwardingFollowers) {
-            byte[] parentCnx = new byte[8];
-            ByteBuffer.wrap(parentCnx).putLong(getParentPeerInTree(handler.getSid()));
-            QuorumPacket cqp = new QuorumPacket(Leader.BuildTreeCnx,zk.getZxid(),parentCnx,null);
-            handler.queuePacket(cqp);
+    private void buildCnxTree(LearnerHandler handler){
+        ReentrantLock lock = new ReentrantLock();
+        Long myid = self.getId();
+        try {
+            lock.lock();
+            int treeNodeNum = getQuorumPeerCnxTreeMapSize() + 1;
+            int curNodeNum = treeNodeNum + 1;
+            if(curNodeNum == nodeNum * 4){
+                nodeNum *= 2;
+            }
+            if(curNodeNum <= INITIAL_TREE_FORK + 1){
+                childPeer.add(handler);
+                quorumPeerCnxTreeList[curNodeNum - 1] = handler.getSid();
+                setQuorumPeerCnxTreeMap(handler.getSid(),myid);
+                return;
+            }
+            Long curSid = handler.getSid();
+            int parentIndex = nodeNum + curNodeNum % nodeNum - 1;
+            Long parentSid = quorumPeerCnxTreeList[parentIndex];
+            quorumPeerCnxTreeList[(parentIndex * 2 + 1 + curNodeNum/nodeNum % 2)] = curSid;
+            setQuorumPeerCnxTreeMap(curSid,parentSid);
+        } finally {
+            lock.unlock();
         }
+    }
+
+    /**
+     * Constructing and sending connection messages for the tree node
+     */
+    private void sendTreeCnxInfo(LearnerHandler handler){
+        byte[] parentCnx = new byte[8];
+        ByteBuffer.wrap(parentCnx).putLong(getParentPeerInTree(handler.getSid()));
+        QuorumPacket cqp = new QuorumPacket(Leader.BuildTreeCnx,zk.getZxid(),parentCnx,null);
+        handler.queuePacket(cqp);
     }
 
     boolean isShutdown;
@@ -1240,7 +1240,8 @@ public class Leader extends LearnerMaster {
             lastCommitted = zxid;
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
-        if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > INITIAL_TREE_FORK){
+        if(self.getIsTreeCnxEnabled()){
+            LOG.debug("Send commit packet to childPeer only");
             sendPacketToChildPeer(qp);
         }else{
             sendPacket(qp);
@@ -1353,7 +1354,8 @@ public class Leader extends LearnerMaster {
 
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
-            if(self.getIsTreeCnxEnabled() && forwardingFollowers.size() > INITIAL_TREE_FORK){
+            if(self.getIsTreeCnxEnabled()){
+                LOG.debug("Send commit packet to childPeer only");
                 sendPacketToChildPeer(pp);
             }else{
                 sendPacket(pp);
