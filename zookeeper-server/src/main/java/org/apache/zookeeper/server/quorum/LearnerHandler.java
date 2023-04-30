@@ -547,13 +547,19 @@ public class LearnerHandler extends ZooKeeperThread {
                 ss = new StateSummary(bbepoch.getInt(), ackEpochPacket.getZxid());
                 learnerMaster.waitForEpochAck(this.getSid(), ss);
             }
+
+            learnerMaster.addCnxTreeNode(this);
+            //Send parent node connection packets to follower
+            byte[] parentCnx = new byte[8];
+            ByteBuffer.wrap(parentCnx).putLong(learnerMaster.getParentPeerInTree(this.getSid()));
+            QuorumPacket cnxPacket = new QuorumPacket(Leader.BuildTreeCnx,newLeaderZxid,parentCnx,null);
+            oa.writeRecord(cnxPacket,"packet");
+
             peerLastZxid = ss.getLastZxid();
 
             // Take any necessary action if we need to send TRUNC or DIFF
             // startForwarding() will be called in all cases
             boolean needSnap = syncFollower(peerLastZxid, learnerMaster);
-
-            learnerMaster.addCnxTreeNode(this);
 
             // syncs between followers and the leader are exempt from throttling because it
             // is importatnt to keep the state of quorum servers up-to-date. The exempted syncs

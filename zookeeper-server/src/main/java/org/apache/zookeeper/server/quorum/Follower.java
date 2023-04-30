@@ -89,6 +89,9 @@ public class Follower extends Learner {
                 connectToLeader(leaderServer.addr, leaderServer.hostname);
                 connectionTime = System.currentTimeMillis();
                 long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
+                if(self.getIsTreeCnxEnabled()){
+                    getCnxInfo();
+                }
                 if (self.isReconfigStateChange()) {
                     throw new Exception("learned about role change");
                 }

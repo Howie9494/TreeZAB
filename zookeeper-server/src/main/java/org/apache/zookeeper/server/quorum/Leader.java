@@ -821,9 +821,6 @@ public class Leader extends LearnerMaster {
                 buildCnxTree(handler);
             }
             LOG.info("Complete the construction of the follower structure as a Tree,{} parent node is {}",handler.getSid(),getParentPeerInTree(handler.getSid()));
-
-            sendTreeCnxInfo(handler);
-            LOG.info("Finish sending connection information to {}",handler.getSid());
         }
     }
 
@@ -879,16 +876,6 @@ public class Leader extends LearnerMaster {
         } finally {
             lock.unlock();
         }
-    }
-
-    /**
-     * Constructing and sending connection messages for the tree node
-     */
-    private void sendTreeCnxInfo(LearnerHandler handler){
-        byte[] parentCnx = new byte[8];
-        ByteBuffer.wrap(parentCnx).putLong(getParentPeerInTree(handler.getSid()));
-        QuorumPacket cqp = new QuorumPacket(Leader.BuildTreeCnx,zk.getZxid(),parentCnx,null);
-        handler.queuePacket(cqp);
     }
 
     boolean isShutdown;

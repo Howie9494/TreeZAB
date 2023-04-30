@@ -476,6 +476,17 @@ public class Learner {
         return sock;
     }
 
+    protected void getCnxInfo() throws IOException {
+        //Accept parent node connection packets
+        QuorumPacket qp = new QuorumPacket();
+        readPacket(qp);
+        LOG.info("test1");
+        if(qp.getType() == Leader.BuildTreeCnx){
+            Long parentSid = ByteBuffer.wrap(qp.getData()).getLong();
+            LOG.info("The parent sid of the CnxTree received for connection is {}",parentSid);
+        }
+    }
+
     /**
      * Once connected to the leader or learner master, perform the handshake
      * protocol to establish a following / observing connection.
