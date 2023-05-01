@@ -849,7 +849,7 @@ public class Leader extends LearnerMaster {
             }else{
                 int addNo = buildCnxTree(handler);
                 if (addNo <= childNumBound[0]) childNum = 2;
-                else if(addNo > childNumBound[0] && addNo <= childNumBound[1]) childNum = 1;
+                else if(addNo <= childNumBound[1]) childNum = 1;
                 else childNum = 0;
             }
             LOG.info("Complete the construction of the follower structure as a Tree," +
