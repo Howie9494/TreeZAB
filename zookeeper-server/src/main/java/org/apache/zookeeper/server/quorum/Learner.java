@@ -476,15 +476,31 @@ public class Learner {
         return sock;
     }
 
-    protected void getCnxInfo() throws IOException {
+    protected QuorumServer getCnxFollower() throws IOException {
+        QuorumServer leaderServer = null;
         //Accept parent node connection packets
         QuorumPacket qp = new QuorumPacket();
         readPacket(qp);
         LOG.info("test1");
+        Long parentSid = 0L;
         if(qp.getType() == Leader.BuildTreeCnx){
-            Long parentSid = ByteBuffer.wrap(qp.getData()).getLong();
-            LOG.info("The parent sid of the CnxTree received for connection is {}",parentSid);
+            parentSid = ByteBuffer.wrap(qp.getData()).getLong();
+            int childNum = ByteBuffer.wrap(qp.getData()).getInt(8);
+            LOG.info("The parent sid of the CnxTree received for connection is {},The number of child nodes is {}",parentSid,childNum);
+            for (QuorumServer s : self.getView().values()) {
+                if (s.id == parentSid){
+                    // Ensure we have the leader's correct IP address before
+                    // attempting to connect.
+                    s.recreateSocketAddresses();
+                    leaderServer = s;
+                    break;
+                }
+            }
         }
+        if (leaderServer == null) {
+            LOG.warn("Couldn't find the leader with id = {}",parentSid);
+        }
+        return leaderServer;
     }
 
     /**

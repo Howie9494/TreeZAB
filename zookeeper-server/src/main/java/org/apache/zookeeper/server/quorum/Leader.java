@@ -790,6 +790,7 @@ public class Leader extends LearnerMaster {
     private static final int INITIAL_TREE_FORK = 2;
     private ArrayList<LearnerHandler> childPeer;
     private Long[] quorumPeerCnxTreeList;
+    private int[] childNumBound;
     private int nodeNum;
 
     /**
@@ -803,47 +804,82 @@ public class Leader extends LearnerMaster {
         return arrayLength - 1;
     }
 
+    /**
+     * Calculate the bounds on the number of children.
+     * 1.addNo<=twoChildBound has two children
+     * 2.twoChildBound<addNo<=oneChildBound has one child
+     * 3.addNo>oneChildBound has no children
+     */
+    private int[] getChildNumBound(){
+        int size = quorumPeerCnxTreeList.length;
+        int sum = self.getView().size();
+        int nodeNum = (size + 1) >> 2;
+        int oneChildBound = size - (nodeNum << 1);
+        int twoChildBound;
+        if((sum - oneChildBound) >= nodeNum){
+            if((sum - oneChildBound) == nodeNum << 1) twoChildBound = oneChildBound;
+            else if((sum - oneChildBound) == nodeNum) twoChildBound = oneChildBound - nodeNum;
+            else twoChildBound = sum - nodeNum << 1;
+        } else{
+            twoChildBound = oneChildBound - nodeNum;
+            oneChildBound = sum - nodeNum;
+        }
+        return new int[]{twoChildBound,oneChildBound};
+    }
+
     @Override
-    public void addCnxTreeNode(LearnerHandler handler){
+    public int addCnxTreeNode(LearnerHandler handler){
         //When cluster follower nodes are greater than INITIAL_TREE_FORK,Constructing follower connections as a Tree
         //Store with QuorumPeerCnxTreeMap
+        int childNum = -1;
         if(self.getIsTreeCnxEnabled()){
             //Initialised when nodes are first added
-            if(getQuorumPeerCnxTreeMapSize() == 0){
+            if(getQuorumPeerCnxTreeParentMapSize() == 0){
                 childPeer = new ArrayList<>(INITIAL_TREE_FORK);
                 quorumPeerCnxTreeList = new Long[calLength(self.getView().size())];
                 nodeNum = INITIAL_TREE_FORK;
                 quorumPeerCnxTreeList[0] = self.getId();
+                childNumBound = getChildNumBound();
             }
+
             if(self.getView().size() <= 3){
-                buildSpecialCnxTree(handler);
+                int addNo = buildSpecialCnxTree(handler);
+                if(self.getView().size() == 2) childNum = addNo == 1 ? 1 : 0;
+                else childNum = addNo == 2 ? 0 : 1;
             }else{
-                buildCnxTree(handler);
+                int addNo = buildCnxTree(handler);
+                if (addNo <= childNumBound[0]) childNum = 2;
+                else if(addNo > childNumBound[0] && addNo <= childNumBound[1]) childNum = 1;
+                else childNum = 0;
             }
-            LOG.info("Complete the construction of the follower structure as a Tree,{} parent node is {}",handler.getSid(),getParentPeerInTree(handler.getSid()));
+            LOG.info("Complete the construction of the follower structure as a Tree," +
+                    "{}'s parent node is {},the number of child node is {}",handler.getSid(),getParentPeerInTree(handler.getSid()),childNum);
+            return childNum;
         }
+        return childNum;
     }
 
     /**
-     * Add the incoming learnerHandler to the special CnxTree (chain)
+     * Add the incoming learnerHandler to the special CnxTree (chain) return addNo
      */
-    private void buildSpecialCnxTree(LearnerHandler handler){
+    private int buildSpecialCnxTree(LearnerHandler handler){
         ReentrantLock lock = new ReentrantLock();
         Long myid = self.getId();
 
         try {
             lock.lock();
-            int treeNodeNum = getQuorumPeerCnxTreeMapSize() + 1;
-            int curNodeNum = treeNodeNum + 1;
-            if(curNodeNum == 2){
+            int treeNodeNum = getQuorumPeerCnxTreeParentMapSize() + 1;
+            int addNo = treeNodeNum + 1;
+            if(addNo == 2){
                 childPeer.add(handler);
-                quorumPeerCnxTreeList[curNodeNum - 1] = handler.getSid();
-                setQuorumPeerCnxTreeMap(handler.getSid(),myid);
-                return;
+                quorumPeerCnxTreeList[addNo - 1] = handler.getSid();
+                setQuorumPeerCnxTreeParentMap(handler.getSid(),myid);
+                return addNo;
             }
             Long curSid = handler.getSid();
-            quorumPeerCnxTreeList[curNodeNum - 1] = curSid;
-            setQuorumPeerCnxTreeMap(curSid,quorumPeerCnxTreeList[1]);
+            quorumPeerCnxTreeList[addNo - 1] = curSid;
+            setQuorumPeerCnxTreeParentMap(curSid,quorumPeerCnxTreeList[1]);
+            return addNo;
         } finally {
             lock.unlock();
         }
@@ -852,27 +888,28 @@ public class Leader extends LearnerMaster {
     /**
      * Add the incoming learnerHandler to the CnxTree
      */
-    private void buildCnxTree(LearnerHandler handler){
+    private int buildCnxTree(LearnerHandler handler){
         ReentrantLock lock = new ReentrantLock();
         Long myid = self.getId();
         try {
             lock.lock();
-            int treeNodeNum = getQuorumPeerCnxTreeMapSize() + 1;
-            int curNodeNum = treeNodeNum + 1;
-            if(curNodeNum == nodeNum * 4){
+            int treeNodeNum = getQuorumPeerCnxTreeParentMapSize() + 1;
+            int addNo = treeNodeNum + 1;
+            if(addNo == nodeNum * 4){
                 nodeNum *= 2;
             }
-            if(curNodeNum <= INITIAL_TREE_FORK + 1){
+            if(addNo <= INITIAL_TREE_FORK + 1){
                 childPeer.add(handler);
-                quorumPeerCnxTreeList[curNodeNum - 1] = handler.getSid();
-                setQuorumPeerCnxTreeMap(handler.getSid(),myid);
-                return;
+                quorumPeerCnxTreeList[addNo - 1] = handler.getSid();
+                setQuorumPeerCnxTreeParentMap(handler.getSid(),myid);
+                return addNo;
             }
             Long curSid = handler.getSid();
-            int parentIndex = nodeNum + curNodeNum % nodeNum - 1;
+            int parentIndex = nodeNum + addNo % nodeNum - 1;
             Long parentSid = quorumPeerCnxTreeList[parentIndex];
-            quorumPeerCnxTreeList[(parentIndex * 2 + 1 + curNodeNum/nodeNum % 2)] = curSid;
-            setQuorumPeerCnxTreeMap(curSid,parentSid);
+            quorumPeerCnxTreeList[(parentIndex * 2 + 1 + addNo/nodeNum % 2)] = curSid;
+            setQuorumPeerCnxTreeParentMap(curSid,parentSid);
+            return addNo;
         } finally {
             lock.unlock();
         }
@@ -1368,7 +1405,7 @@ public class Leader extends LearnerMaster {
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
             if(self.getIsTreeCnxEnabled()){
-                LOG.debug("Send commit packet to childPeer only");
+                LOG.debug("Send propose packet to childPeer only");
                 sendPacketToChildPeer(pp);
             }else{
                 sendPacket(pp);

@@ -548,12 +548,16 @@ public class LearnerHandler extends ZooKeeperThread {
                 learnerMaster.waitForEpochAck(this.getSid(), ss);
             }
 
-            learnerMaster.addCnxTreeNode(this);
-            //Send parent node connection packets to follower
-            byte[] parentCnx = new byte[8];
-            ByteBuffer.wrap(parentCnx).putLong(learnerMaster.getParentPeerInTree(this.getSid()));
-            QuorumPacket cnxPacket = new QuorumPacket(Leader.BuildTreeCnx,newLeaderZxid,parentCnx,null);
-            oa.writeRecord(cnxPacket,"packet");
+            int childNum = learnerMaster.addCnxTreeNode(this);
+            if(childNum >= 0){
+                //Send parent node connection and number of child packets to follower
+                byte[] cnxInfo = new byte[12];
+                ByteBuffer.wrap(cnxInfo).putLong(0,learnerMaster.getParentPeerInTree(this.getSid()));
+                ByteBuffer.wrap(cnxInfo).putInt(8,childNum);
+
+                QuorumPacket cnxPacket = new QuorumPacket(Leader.BuildTreeCnx,newLeaderZxid,cnxInfo,null);
+                oa.writeRecord(cnxPacket,"packet");
+            }
 
             peerLastZxid = ss.getLastZxid();
 

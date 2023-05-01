@@ -81,18 +81,18 @@ public abstract class LearnerMaster {
 
     //Store the connection tree, not work when the size of forwardingFollowers <= 2
     //<child node sid,parent node sid>
-    private ConcurrentHashMap<Long,Long> QuorumPeerCnxTreeMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<Long,Long> QuorumPeerCnxTreeParentMap = new ConcurrentHashMap<>();
 
-    public void setQuorumPeerCnxTreeMap(Long childSid,Long parentSid){
-        QuorumPeerCnxTreeMap.put(childSid,parentSid);
+    public void setQuorumPeerCnxTreeParentMap(Long childSid,Long parentSid){
+        QuorumPeerCnxTreeParentMap.put(childSid,parentSid);
     }
 
-    public int getQuorumPeerCnxTreeMapSize(){
-        return QuorumPeerCnxTreeMap.size();
+    public int getQuorumPeerCnxTreeParentMapSize(){
+        return QuorumPeerCnxTreeParentMap.size();
     }
 
     public Long getParentPeerInTree(Long sid){
-        return QuorumPeerCnxTreeMap.get(sid);
+        return QuorumPeerCnxTreeParentMap.get(sid);
     }
 
     /**
@@ -112,10 +112,10 @@ public abstract class LearnerMaster {
     }
 
     /**
-     * Add learnerhandler to TreeCnx as a node
+     * Add learnerhandler to TreeCnx as a node get number of child node
      * @param learnerHandler add as a node of TreeCnx
      */
-    abstract void addCnxTreeNode(LearnerHandler learnerHandler);
+    abstract int addCnxTreeNode(LearnerHandler learnerHandler);
 
     /**
      * start tracking a learner handler

@@ -152,8 +152,9 @@ public class ObserverMaster extends LearnerMaster implements Runnable {
     }
 
     @Override
-    void addCnxTreeNode(LearnerHandler handler) {
+    int addCnxTreeNode(LearnerHandler handler) {
         //For leader only to build the tree cluster, nothing needs to be done here.
+        return -1;
     }
 
     @Override

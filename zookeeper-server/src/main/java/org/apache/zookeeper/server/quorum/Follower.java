@@ -90,7 +90,15 @@ public class Follower extends Learner {
                 connectionTime = System.currentTimeMillis();
                 long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
                 if(self.getIsTreeCnxEnabled()){
-                    getCnxInfo();
+                    // Start thread that waits for connection requests from
+                    // new followers.
+//                    cnxAcceptor = new Follower.ChildCnxAcceptor();
+//                    cnxAcceptor.start();
+
+                    QuorumServer cnxFollowerServer = getCnxFollower();
+//                    if(cnxFollowerServer.getId() != leaderServer.getId()){
+//                        connectToFollower(cnxFollowerServer.addr,cnxFollowerServer.hostname);
+//                    }
                 }
                 if (self.isReconfigStateChange()) {
                     throw new Exception("learned about role change");
