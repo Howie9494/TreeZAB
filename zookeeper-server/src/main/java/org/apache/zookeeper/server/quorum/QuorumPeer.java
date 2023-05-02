@@ -211,6 +211,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
         public MultipleAddresses electionAddr = new MultipleAddresses();
 
+        public MultipleAddresses treeAddr = new MultipleAddresses();
+
         public InetSocketAddress clientAddr = null;
 
         public long id;
@@ -336,7 +338,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             for (String serverAddress : serverAddresses) {
                 String serverParts[] = ConfigUtils.getHostAndPort(serverAddress);
                 if ((serverClientParts.length > 2) || (serverParts.length < 3)
-                        || (serverParts.length > 4)) {
+                        || (serverParts.length > 5)) {
                     throw new ConfigException(addressStr + wrongFormat);
                 }
 
@@ -345,6 +347,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 // server_config should be either host:port:port or host:port:port:type
                 InetSocketAddress tempAddress;
                 InetSocketAddress tempElectionAddress;
+                InetSocketAddress tempTreeAddress = null;
                 try {
                     tempAddress = new InetSocketAddress(serverHostName, Integer.parseInt(serverParts[1]));
                     addr.addAddress(tempAddress);
@@ -357,9 +360,22 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 } catch (NumberFormatException e) {
                     throw new ConfigException("Address unresolved: " + serverHostName + ":" + serverParts[2]);
                 }
+                try{
+                    if((!serverParts[3].equals("participant")) && (!serverParts[3].equals("observer"))){
+                        tempTreeAddress = new InetSocketAddress(serverHostName, Integer.parseInt(serverParts[3]));
+                        treeAddr.addAddress(tempTreeAddress);
+                    }
+                }catch (NumberFormatException e){
+                    throw new ConfigException("Address unresolved: " + serverHostName + ":" + serverParts[3]);
+                }
 
                 if (tempAddress.getPort() == tempElectionAddress.getPort()) {
                     throw new ConfigException("Client and election port must be different! Please update the "
+                            + "configuration file on server." + this.id);
+                }
+                if (tempTreeAddress != null && (tempAddress.getPort() == tempTreeAddress.getPort()
+                        || tempElectionAddress.getPort() == tempTreeAddress.getPort())) {
+                    throw new ConfigException("TreeCnx and client,election port must be different! Please update the "
                             + "configuration file on server." + this.id);
                 }
 
@@ -382,8 +398,17 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     }
                 }
 
-                if (serverParts.length == 4) {
+                if (serverParts.length == 4 && tempTreeAddress == null) {
                     LearnerType tempType = getType(serverParts[3]);
+                    if (newType == null) {
+                        newType = tempType;
+                    }
+
+                    if (newType != tempType) {
+                        throw new ConfigException("Multiple addresses should have similar roles: " + type + " vs " + tempType);
+                    }
+                } else if(serverParts.length == 5){
+                    LearnerType tempType = getType(serverParts[4]);
                     if (newType == null) {
                         newType = tempType;
                     }
