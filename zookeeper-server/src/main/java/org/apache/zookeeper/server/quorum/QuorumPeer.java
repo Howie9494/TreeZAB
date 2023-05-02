@@ -147,11 +147,13 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
         public final MultipleAddresses quorumAddr;
         public final MultipleAddresses electionAddr;
+        public final MultipleAddresses treeAddr;
         public final InetSocketAddress clientAddr;
 
-        public AddressTuple(MultipleAddresses quorumAddr, MultipleAddresses electionAddr, InetSocketAddress clientAddr) {
+        public AddressTuple(MultipleAddresses quorumAddr, MultipleAddresses electionAddr,MultipleAddresses treeAddr, InetSocketAddress clientAddr) {
             this.quorumAddr = quorumAddr;
             this.electionAddr = electionAddr;
+            this.treeAddr = treeAddr;
             this.clientAddr = clientAddr;
         }
 
@@ -1020,7 +1022,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             if (qs != null) {
                 qs.recreateSocketAddresses();
                 if (id == getId()) {
-                    setAddrs(qs.addr, qs.electionAddr, qs.clientAddr);
+                    setAddrs(qs.addr, qs.electionAddr, qs.treeAddr, qs.clientAddr);
                 }
             }
         }
@@ -1061,14 +1063,18 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         return getAddrs().electionAddr;
     }
 
+    public MultipleAddresses getTreeAddress() {
+        return getAddrs().treeAddr;
+    }
+
     public InetSocketAddress getClientAddress() {
         final AddressTuple addrs = myAddrs.get();
         return (addrs == null) ? null : addrs.clientAddr;
     }
 
-    private void setAddrs(MultipleAddresses quorumAddr, MultipleAddresses electionAddr, InetSocketAddress clientAddr) {
+    private void setAddrs(MultipleAddresses quorumAddr, MultipleAddresses electionAddr, MultipleAddresses treeAddr, InetSocketAddress clientAddr) {
         synchronized (QV_LOCK) {
-            myAddrs.set(new AddressTuple(quorumAddr, electionAddr, clientAddr));
+            myAddrs.set(new AddressTuple(quorumAddr, electionAddr, treeAddr, clientAddr));
             QV_LOCK.notifyAll();
         }
     }
@@ -2000,7 +2006,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             }
             QuorumServer qs = qv.getAllMembers().get(getId());
             if (qs != null) {
-                setAddrs(qs.addr, qs.electionAddr, qs.clientAddr);
+                setAddrs(qs.addr, qs.electionAddr, qs.treeAddr, qs.clientAddr);
             }
             updateObserverMasterList();
             return prevQV;
