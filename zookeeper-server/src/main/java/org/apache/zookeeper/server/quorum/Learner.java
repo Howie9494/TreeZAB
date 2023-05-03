@@ -530,7 +530,6 @@ public class Learner {
         @Override
         public void run() {
             try {
-                LOG.info("ParentConnector execute");
                 Thread.currentThread().setName("ParentConnector-" + address);
                 Socket sock = connectToParent();
 

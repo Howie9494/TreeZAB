@@ -96,7 +96,6 @@ public class ChildHandler extends ZooKeeperThread {
 
     @Override
     public void run() {
-        LOG.info("ChildHandler execute");
         try {
             childMaster.addChildHandler(this);
             tickOfNextAckDeadline = childMaster.getTickOfInitialAckDeadline();

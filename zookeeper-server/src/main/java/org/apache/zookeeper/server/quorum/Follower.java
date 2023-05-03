@@ -365,7 +365,6 @@ public class Follower extends Learner implements ChildMaster{
                 boolean error = false;
                 try {
                     socket = serverSocket.accept();
-                    LOG.info("after accept");
 
                     // start with the initLimit, once the ack is processed
                     // in LearnerHandler switch to the syncLimit
