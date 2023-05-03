@@ -19,17 +19,37 @@
 package org.apache.zookeeper.server.quorum;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+
+import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.List;
+import java.util.LinkedList;
+import java.util.Set;
+import java.util.Optional;
+import java.util.HashSet;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import org.apache.jute.Record;
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.common.Time;
+import org.apache.zookeeper.jmx.MBeanRegistry;
 import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.ServerMetrics;
 import org.apache.zookeeper.server.TxnLogEntry;
+import org.apache.zookeeper.server.ZooKeeperCriticalThread;
 import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
 import org.apache.zookeeper.server.quorum.flexible.QuorumVerifier;
 import org.apache.zookeeper.server.util.SerializeUtils;
@@ -38,21 +58,65 @@ import org.apache.zookeeper.txn.SetDataTxn;
 import org.apache.zookeeper.txn.TxnDigest;
 import org.apache.zookeeper.txn.TxnHeader;
 
+import javax.security.sasl.SaslException;
+
 /**
  * This class has the control logic for the Follower.
  */
-public class Follower extends Learner {
+public class Follower extends Learner implements ChildMaster{
 
     private long lastQueued;
     // This is the same object as this.zk, but we cache the downcast op
     final FollowerZooKeeperServer fzk;
+    
+    private static final boolean nodelay = System.getProperty("follower.nodelay", "true").equals("true");
+
+    // the child acceptor thread
+    volatile ChildCnxAcceptor cnxAcceptor = null;
 
     ObserverMaster om;
 
-    Follower(final QuorumPeer self, final FollowerZooKeeperServer zk) {
+    private final List<ServerSocket> serverSockets = new LinkedList<>();
+
+    Follower(final QuorumPeer self, final FollowerZooKeeperServer zk) throws IOException {
         this.self = Objects.requireNonNull(self);
         this.fzk = Objects.requireNonNull(zk);
+
+        Set<InetSocketAddress> addresses;
+        if (self.getQuorumListenOnAllIPs()) {
+            addresses = self.getTreeAddress().getWildcardAddresses();
+        } else {
+            addresses = self.getTreeAddress().getAllAddresses();
+        }
+
+        addresses.stream()
+                .map(address -> createServerSocket(address, self.shouldUsePortUnification(), self.isSslQuorum()))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .forEach(serverSockets::add);
+
+        if (serverSockets.isEmpty()) {
+            throw new IOException("Follower failed to initialize any of the sockets: " + addresses);
+        }
+
         this.zk = zk;
+    }
+
+    Optional<ServerSocket> createServerSocket(InetSocketAddress address, boolean portUnification, boolean sslQuorum) {
+        ServerSocket serverSocket;
+        try {
+            if (portUnification || sslQuorum) {
+                serverSocket = new UnifiedServerSocket(self.getX509Util(), portUnification);
+            } else {
+                serverSocket = new ServerSocket();
+            }
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(address);
+            return Optional.of(serverSocket);
+        } catch (IOException e) {
+            LOG.error("Couldn't bind to {}", address.toString(), e);
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -90,15 +154,23 @@ public class Follower extends Learner {
                 connectionTime = System.currentTimeMillis();
                 long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
                 if(self.getIsTreeCnxEnabled()){
-                    // Start thread that waits for connection requests from
-                    // new followers.
-//                    cnxAcceptor = new Follower.ChildCnxAcceptor();
-//                    cnxAcceptor.start();
-
-                    QuorumServer cnxFollowerServer = getCnxFollower();
-//                    if(cnxFollowerServer.getId() != leaderServer.getId()){
-//                        connectToFollower(cnxFollowerServer.addr,cnxFollowerServer.hostname);
-//                    }
+                    QuorumPacket qp = new QuorumPacket();
+                    readPacket(qp);
+                    if(qp.getType() == Leader.BuildTreeCnx){
+                        Long parentSid = ByteBuffer.wrap(qp.getData()).getLong(0);
+                        int childNum = ByteBuffer.wrap(qp.getData()).getInt(8);
+                        LOG.info("The parent sid of the CnxTree received for connection is {},The number of child nodes is {}",parentSid,childNum);
+                        // Start thread that waits for connection requests from
+                        // new followers.
+                        if(childNum != 0){
+                            cnxAcceptor = new Follower.ChildCnxAcceptor(childNum);
+                            cnxAcceptor.start();
+                        }
+                        if(parentSid != leaderServer.getId()){
+                            QuorumServer parentServer = findCnxFollower(parentSid);
+                            connectToParent(parentServer.treeAddr,parentServer.hostname);
+                        }
+                    }
                 }
                 if (self.isReconfigStateChange()) {
                     throw new Exception("learned about role change");
@@ -156,6 +228,176 @@ public class Follower extends Learner {
                     connectionDuration,
                     completedSync);
                 messageTracker.dumpToLog(leaderAddr.toString());
+            }
+        }
+    }
+
+    synchronized void closeSockets() {
+        for (ServerSocket serverSocket : serverSockets) {
+            if (!serverSocket.isClosed()) {
+                try {
+                    serverSocket.close();
+                } catch (IOException e) {
+                    LOG.warn("Ignoring unexpected exception during close {}", serverSocket, e);
+                }
+            }
+        }
+    }
+
+    // list of all the learners, including followers and observers
+    private final HashSet<ChildHandler> childs = new HashSet<ChildHandler>();
+
+    // beans for all learners
+    private final ConcurrentHashMap<ChildHandler, ChildHandlerBean> connectionBeans = new ConcurrentHashMap<>();
+
+    @Override
+    public void registerChildHandlerBean(ChildHandler childHandler, Socket socket) {
+        ChildHandlerBean bean = new ChildHandlerBean(childHandler, socket);
+        if (zk.registerJMX(bean)) {
+            connectionBeans.put(childHandler, bean);
+        }
+    }
+
+    @Override
+    public void unregisterChildHandlerBean(ChildHandler childHandler) {
+        ChildHandlerBean bean = connectionBeans.remove(childHandler);
+        if (bean != null) {
+            MBeanRegistry.getInstance().unregister(bean);
+        }
+    }
+
+    @Override
+    public void addChildHandler(ChildHandler childHandler) {
+        synchronized (childs) {
+            childs.add(childHandler);
+        }
+    }
+
+    @Override
+    public void removeChildHandler(ChildHandler childHandler) {
+        synchronized (childs) {
+            childs.remove(childHandler);
+        }
+    }
+
+    @Override
+    public int getTickOfInitialAckDeadline() {
+        return self.tick.get() + self.initLimit + self.syncLimit;
+    }
+
+    class ChildCnxAcceptor extends ZooKeeperCriticalThread {
+
+        private final AtomicBoolean stop = new AtomicBoolean(false);
+        private final AtomicBoolean fail = new AtomicBoolean(false);
+        private final int childNum;
+
+        public ChildCnxAcceptor(int childNum) {
+            super("ChildCnxAcceptor-" + serverSockets.stream()
+                            .map(ServerSocket::getLocalSocketAddress)
+                            .map(Objects::toString)
+                            .collect(Collectors.joining("|")),
+                    zk.getZooKeeperServerListener());
+            this.childNum = childNum;
+        }
+
+        @Override
+        public void run() {
+            if (!stop.get() && !serverSockets.isEmpty()) {
+                ExecutorService executor = Executors.newFixedThreadPool(serverSockets.size());
+                CountDownLatch latch = new CountDownLatch(serverSockets.size());
+
+                serverSockets.forEach(serverSocket ->
+                        executor.submit(new ChildCnxAcceptorHandler(serverSocket, latch)));
+
+                try {
+                    latch.await();
+                } catch (InterruptedException ie) {
+                    LOG.error("Interrupted while sleeping in ChildCnxAcceptor.", ie);
+                } finally {
+                    closeSockets();
+                    executor.shutdown();
+                    try {
+                        if (!executor.awaitTermination(1, TimeUnit.SECONDS)) {
+                            LOG.error("not all the ChildCnxAcceptorHandler terminated properly");
+                        }
+                    } catch (InterruptedException ie) {
+                        LOG.error("Interrupted while terminating ChildCnxAcceptor.", ie);
+                    }
+                }
+            }
+        }
+
+        public void halt() {
+            stop.set(true);
+            closeSockets();
+        }
+
+        class ChildCnxAcceptorHandler implements Runnable {
+            private ServerSocket serverSocket;
+            private CountDownLatch latch;
+
+            ChildCnxAcceptorHandler(ServerSocket serverSocket, CountDownLatch latch) {
+                this.serverSocket = serverSocket;
+                this.latch = latch;
+            }
+
+            @Override
+            public void run() {
+                try {
+                    Thread.currentThread().setName("ChildCnxAcceptorHandler-" + serverSocket.getLocalSocketAddress());
+
+                    while (!stop.get()) {
+                        acceptConnections();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Exception while accepting follower", e);
+                    if (fail.compareAndSet(false, true)) {
+                        handleException(getName(), e);
+                        halt();
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            }
+
+            private void acceptConnections() throws IOException {
+                Socket socket = null;
+                boolean error = false;
+                try {
+                    socket = serverSocket.accept();
+                    LOG.info("after accept");
+
+                    // start with the initLimit, once the ack is processed
+                    // in LearnerHandler switch to the syncLimit
+                    socket.setSoTimeout(self.tickTime * self.initLimit);
+                    socket.setTcpNoDelay(nodelay);
+
+                    BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
+                    ChildHandler ch = new ChildHandler(socket, is, Follower.this);
+                    ch.start();
+                } catch (SocketException e) {
+                    error = true;
+                    if (stop.get()) {
+                        LOG.warn("Exception while shutting down acceptor.", e);
+                    } else {
+                        throw e;
+                    }
+                } catch (SaslException e) {
+                    LOG.error("Exception while connecting to quorum child", e);
+                    error = true;
+                } catch (Exception e) {
+                    error = true;
+                    throw e;
+                } finally {
+                    // Don't leak sockets on errors
+                    if (error && socket != null && !socket.isClosed()) {
+                        try {
+                            socket.close();
+                        } catch (IOException e) {
+                            LOG.warn("Error closing socket: " + socket, e);
+                        }
+                    }
+                }
             }
         }
     }

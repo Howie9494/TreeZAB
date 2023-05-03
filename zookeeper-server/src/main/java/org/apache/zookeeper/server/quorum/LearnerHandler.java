@@ -557,6 +557,8 @@ public class LearnerHandler extends ZooKeeperThread {
 
                 QuorumPacket cnxPacket = new QuorumPacket(Leader.BuildTreeCnx,newLeaderZxid,cnxInfo,null);
                 oa.writeRecord(cnxPacket,"packet");
+                messageTracker.trackSent(Leader.BuildTreeCnx);
+                bufferedOutput.flush();
             }
 
             peerLastZxid = ss.getLastZxid();

@@ -88,10 +88,14 @@ public class Learner {
     LearnerZooKeeperServer zk;
 
     protected BufferedOutputStream bufferedOutput;
+    protected BufferedOutputStream parentBufferedOutput;
 
     protected Socket sock;
+    protected Socket parentSock;
     protected MultipleAddresses leaderAddr;
+    protected MultipleAddresses parentAddr;
     protected AtomicBoolean sockBeingClosed = new AtomicBoolean(false);
+    protected AtomicBoolean parentSockBeingClosed = new AtomicBoolean(false);
 
     /**
      * Socket getter
@@ -103,6 +107,8 @@ public class Learner {
     LearnerSender sender = null;
     protected InputArchive leaderIs;
     protected OutputArchive leaderOs;
+    protected InputArchive parentIs;
+    protected OutputArchive parentOs;
     /** the protocol version of the leader */
     protected int leaderProtocolVersion = 0x01;
 
@@ -461,6 +467,155 @@ public class Learner {
         }
     }
 
+    protected void connectToParent(MultipleAddresses multiAddr, String hostname) throws IOException {
+        LOG.info("The connecting parent node's address is {}",multiAddr);
+        this.parentAddr = multiAddr;
+        Set<InetSocketAddress> addresses;
+        if (self.isMultiAddressReachabilityCheckEnabled()) {
+            // even if none of the addresses are reachable, we want to try to establish connection
+            // see ZOOKEEPER-3758
+            addresses = multiAddr.getAllReachableAddressesOrAll();
+        } else {
+            addresses = multiAddr.getAllAddresses();
+        }
+        ExecutorService executor = Executors.newFixedThreadPool(addresses.size());
+        CountDownLatch latch = new CountDownLatch(addresses.size());
+        AtomicReference<Socket> socket = new AtomicReference<>(null);
+        addresses.stream().map(address -> new ParentConnector(address, socket, latch)).forEach(executor::submit);
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            LOG.warn("Interrupted while trying to connect to follower", e);
+        } finally {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(1, TimeUnit.SECONDS)) {
+                    LOG.error("not all the FollowerConnector terminated properly");
+                }
+            } catch (InterruptedException ie) {
+                LOG.error("Interrupted while terminating FollowerConnector executor.", ie);
+            }
+        }
+
+        if (socket.get() == null) {
+            throw new IOException("Failed connect to " + multiAddr);
+        } else {
+            parentSock = socket.get();
+            parentSockBeingClosed.set(false);
+        }
+
+        self.authLearner.authenticate(parentSock, hostname);
+
+        parentIs = BinaryInputArchive.getArchive(new BufferedInputStream(parentSock.getInputStream()));
+        parentBufferedOutput = new BufferedOutputStream(parentSock.getOutputStream());
+        parentOs = BinaryOutputArchive.getArchive(parentBufferedOutput);
+        if (asyncSending) {
+            startSendingThread();
+        }
+    }
+
+    class ParentConnector implements Runnable{
+
+        private AtomicReference<Socket> socket;
+        private InetSocketAddress address;
+        private CountDownLatch latch;
+
+        ParentConnector(InetSocketAddress address, AtomicReference<Socket> socket, CountDownLatch latch) {
+            this.address = address;
+            this.socket = socket;
+            this.latch = latch;
+        }
+
+        @Override
+        public void run() {
+            try {
+                LOG.info("ParentConnector execute");
+                Thread.currentThread().setName("ParentConnector-" + address);
+                Socket sock = connectToParent();
+
+                if (sock != null && sock.isConnected()) {
+                    if (socket.compareAndSet(null, sock)) {
+                        LOG.info("Successfully connected to parent, using address: {}", address);
+                    } else {
+                        LOG.info("Connection to the parent is already established, close the redundant connection");
+                        sock.close();
+                    }
+                }
+
+            } catch (Exception e) {
+                LOG.error("Failed connect to {}", address, e);
+            } finally {
+                latch.countDown();
+            }
+        }
+
+        private Socket connectToParent() throws IOException, X509Exception, InterruptedException {
+            Socket sock = createSocket();
+
+            // leader connection timeout defaults to tickTime * initLimit
+            int connectTimeout = self.tickTime * self.initLimit;
+
+            // but if connectToLearnerMasterLimit is specified, use that value to calculate
+            // timeout instead of using the initLimit value
+            if (self.connectToLearnerMasterLimit > 0) {
+                connectTimeout = self.tickTime * self.connectToLearnerMasterLimit;
+            }
+
+            int remainingTimeout;
+            long startNanoTime = nanoTime();
+
+            for (int tries = 0; tries < 5 && socket.get() == null; tries++) {
+                try {
+                    // recalculate the init limit time because retries sleep for 1000 milliseconds
+                    remainingTimeout = connectTimeout - (int) ((nanoTime() - startNanoTime) / 1_000_000);
+                    if (remainingTimeout <= 0) {
+                        LOG.error("connectToFollower exceeded on retries.");
+                        throw new IOException("connectToFollower exceeded on retries.");
+                    }
+
+                    sockConnect(sock, address, Math.min(connectTimeout, remainingTimeout));
+                    if (self.isSslQuorum()) {
+                        ((SSLSocket) sock).startHandshake();
+                    }
+                    sock.setTcpNoDelay(nodelay);
+                    break;
+                } catch (IOException e) {
+                    remainingTimeout = connectTimeout - (int) ((nanoTime() - startNanoTime) / 1_000_000);
+
+                    if (remainingTimeout <= leaderConnectDelayDuringRetryMs) {
+                        LOG.error(
+                                "Unexpected exception, connectToFollower exceeded. tries={}, remaining init limit={}, connecting to {}",
+                                tries,
+                                remainingTimeout,
+                                address,
+                                e);
+                        throw e;
+                    } else if (tries >= 4) {
+                        LOG.error(
+                                "Unexpected exception, retries exceeded. tries={}, remaining init limit={}, connecting to {}",
+                                tries,
+                                remainingTimeout,
+                                address,
+                                e);
+                        throw e;
+                    } else {
+                        LOG.warn(
+                                "Unexpected exception, tries={}, remaining init limit={}, connecting to {}",
+                                tries,
+                                remainingTimeout,
+                                address,
+                                e);
+                        sock = createSocket();
+                    }
+                }
+                Thread.sleep(leaderConnectDelayDuringRetryMs);
+            }
+
+            return sock;
+        }
+    }
+
     /**
      * Creating a simple or and SSL socket.
      * This can be overridden in tests to fake already connected sockets for connectToLeader.
@@ -476,26 +631,23 @@ public class Learner {
         return sock;
     }
 
-    protected QuorumServer getCnxFollower() throws IOException {
+    /**
+     * get the corresponding QuorumServer.
+     */
+    protected QuorumServer findCnxFollower(Long parentSid){
         QuorumServer parentServer = null;
         //Accept parent node connection packets
-        QuorumPacket qp = new QuorumPacket();
-        readPacket(qp);
-        Long parentSid = 0L;
-        if(qp.getType() == Leader.BuildTreeCnx){
-            parentSid = ByteBuffer.wrap(qp.getData()).getLong(0);
-            int childNum = ByteBuffer.wrap(qp.getData()).getInt(8);
-            LOG.info("The parent sid of the CnxTree received for connection is {},The number of child nodes is {}",parentSid,childNum);
-            for (QuorumServer s : self.getView().values()) {
-                if (s.id == parentSid){
-                    // Ensure we have the leader's correct IP address before
-                    // attempting to connect.
-                    s.recreateSocketAddresses();
-                    parentServer = s;
-                    break;
-                }
+
+        for (QuorumServer s : self.getView().values()) {
+            if (s.id == parentSid){
+                // Ensure we have the leader's correct IP address before
+                // attempting to connect.
+                s.recreateSocketAddresses();
+                parentServer = s;
+                break;
             }
         }
+
         if (parentServer == null) {
             LOG.warn("Couldn't find the server with id = {}",parentSid);
         }
@@ -930,5 +1082,4 @@ public class Learner {
             LOG.warn("Ignoring error closing connection to leader", e);
         }
     }
-
 }

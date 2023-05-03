@@ -29,6 +29,8 @@ import org.apache.zookeeper.server.ZKDatabase;
 import org.apache.zookeeper.server.ZooKeeperServerBean;
 import org.apache.zookeeper.server.persistence.FileTxnSnapLog;
 
+import javax.management.JMException;
+
 /**
  * Parent class for all ZooKeeperServers for Learners
  */
@@ -124,6 +126,16 @@ public abstract class LearnerZooKeeperServer extends QuorumZooKeeperServer {
             LOG.warn("Failed to register with JMX", e);
             jmxServerBean = null;
         }
+    }
+
+    boolean registerJMX(ChildHandlerBean handlerBean) {
+        try {
+            MBeanRegistry.getInstance().register(handlerBean, jmxServerBean);
+            return true;
+        } catch (JMException e) {
+            LOG.warn("Could not register connection", e);
+        }
+        return false;
     }
 
     @Override
