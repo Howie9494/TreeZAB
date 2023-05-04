@@ -548,17 +548,19 @@ public class LearnerHandler extends ZooKeeperThread {
                 learnerMaster.waitForEpochAck(this.getSid(), ss);
             }
 
-            int childNum = learnerMaster.addCnxTreeNode(this);
-            if(childNum >= 0){
-                //Send parent node connection and number of child packets to follower
-                byte[] cnxInfo = new byte[12];
-                ByteBuffer.wrap(cnxInfo).putLong(0,learnerMaster.getParentPeerInTree(this.getSid()));
-                ByteBuffer.wrap(cnxInfo).putInt(8,childNum);
+            if (this.learnerType == LearnerType.PARTICIPANT) {
+                int childNum = learnerMaster.addCnxTreeNode(this);
+                if(childNum >= 0){
+                    //Send parent node connection and number of child packets to follower
+                    byte[] cnxInfo = new byte[12];
+                    ByteBuffer.wrap(cnxInfo).putLong(0,learnerMaster.getParentPeerInTree(this.getSid()));
+                    ByteBuffer.wrap(cnxInfo).putInt(8,childNum);
 
-                QuorumPacket cnxPacket = new QuorumPacket(Leader.BuildTreeCnx,newLeaderZxid,cnxInfo,null);
-                oa.writeRecord(cnxPacket,"packet");
-                messageTracker.trackSent(Leader.BuildTreeCnx);
-                bufferedOutput.flush();
+                    QuorumPacket cnxPacket = new QuorumPacket(Leader.BuildTreeCnx,newLeaderZxid,cnxInfo,null);
+                    oa.writeRecord(cnxPacket,"packet");
+                    messageTracker.trackSent(Leader.BuildTreeCnx);
+                    bufferedOutput.flush();
+                }
             }
 
             peerLastZxid = ss.getLastZxid();
