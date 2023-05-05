@@ -160,7 +160,7 @@ public class WatchLeakTest {
          * @param self
          * @param zk
          */
-        MyFollower(QuorumPeer self, FollowerZooKeeperServer zk) {
+        MyFollower(QuorumPeer self, FollowerZooKeeperServer zk) throws IOException {
             super(self, zk);
             leaderOs = mock(OutputArchive.class);
             leaderIs = mock(InputArchive.class);

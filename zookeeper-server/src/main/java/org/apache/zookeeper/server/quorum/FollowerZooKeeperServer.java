@@ -77,6 +77,20 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         syncProcessor.start();
     }
 
+    @Override
+    protected void setupTreeRequestProcessors() {
+        RequestProcessor finalProcessor = new FinalRequestProcessor(this);
+        commitProcessor = new CommitProcessor(finalProcessor, Long.toString(getServerId()), true, getZooKeeperServerListener());
+        commitProcessor.start();
+        firstProcessor = new FollowerRequestProcessor(this, commitProcessor);
+        ((FollowerRequestProcessor) firstProcessor).start();
+        ackProcessor = new SendTreeAckRequestProcessor(this,getFollower());
+        ackProcessor.start();
+        syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()));
+        syncProcessor.start();
+        forwardProcessor = new ForwardProposalRequestProcessor(this,syncProcessor);
+    }
+
     LinkedBlockingQueue<Request> pendingTxns = new LinkedBlockingQueue<Request>();
 
     public void logRequest(TxnHeader hdr, Record txn, TxnDigest digest) {
@@ -86,6 +100,24 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
             pendingTxns.add(request);
         }
         syncProcessor.processRequest(request);
+    }
+
+    public void forwardAndLogRequest(TxnHeader hdr, Record txn, TxnDigest digest){
+        Request request = new Request(hdr.getClientId(), hdr.getCxid(), hdr.getType(), hdr, txn, hdr.getZxid());
+        request.setTxnDigest(digest);
+        if ((request.zxid & 0xffffffffL) != 0) {
+            pendingTxns.add(request);
+        }
+        forwardProcessor.processRequest(request);
+    }
+
+    public void RecvAckRequest(TxnHeader hdr, Record txn, TxnDigest digest,Long myid){
+        Request request = new Request(hdr.getClientId(), hdr.getCxid(), hdr.getType(), hdr, txn, hdr.getZxid());
+        request.setTxnDigest(digest);
+        if ((request.zxid & 0xffffffffL) != 0) {
+            pendingTxns.add(request);
+        }
+        ackProcessor.processRequest(request);
     }
 
     /**

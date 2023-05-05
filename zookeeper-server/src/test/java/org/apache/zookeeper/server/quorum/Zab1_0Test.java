@@ -1131,7 +1131,7 @@ public class Zab1_0Test extends ZKTestCase {
 
     static class ConversableFollower extends Follower {
 
-        ConversableFollower(QuorumPeer self, FollowerZooKeeperServer zk) {
+        ConversableFollower(QuorumPeer self, FollowerZooKeeperServer zk)  throws IOException {
             super(self, zk);
         }
 

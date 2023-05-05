@@ -98,6 +98,7 @@ public class ChildHandler extends ZooKeeperThread {
     public void run() {
         try {
             childMaster.addChildHandler(this);
+            LOG.info("add child handler : {} to childs",sock.getRemoteSocketAddress());
             tickOfNextAckDeadline = childMaster.getTickOfInitialAckDeadline();
 
             ia = BinaryInputArchive.getArchive(bufferedInput);
@@ -108,6 +109,16 @@ public class ChildHandler extends ZooKeeperThread {
 
             // Start thread that blast packets in the queue to child
             startSendingPackets();
+
+            while(true){
+//                QuorumPacket qp = new QuorumPacket();
+//                ia.readRecord(qp, "packet");
+                try {
+                    Thread.sleep(20000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
         } catch (IOException e) {
             LOG.error("Unexpected exception in ChildHandler: ", e);
             closeSocket();

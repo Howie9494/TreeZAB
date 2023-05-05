@@ -118,7 +118,7 @@ public class Observer extends Learner {
                 final long startTime = Time.currentElapsedTime();
                 self.setLeaderAddressAndId(master.addr, master.getId());
                 self.setZabState(QuorumPeer.ZabState.SYNCHRONIZATION);
-                syncWithLeader(newLeaderZxid);
+                syncWithLeader(newLeaderZxid,false,0);
                 self.setZabState(QuorumPeer.ZabState.BROADCAST);
                 completedSync = true;
                 final long syncTime = Time.currentElapsedTime() - startTime;

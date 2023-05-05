@@ -691,11 +691,11 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
     }
 
     public synchronized void startup() {
-        startupWithServerState(State.RUNNING);
+        startupWithServerState(State.RUNNING,false);
     }
 
-    public synchronized void startupWithoutServing() {
-        startupWithServerState(State.INITIAL);
+    public synchronized void startupWithoutServing(boolean isTreeCnxEnabled) {
+        startupWithServerState(State.INITIAL,isTreeCnxEnabled);
     }
 
     public synchronized void startServing() {
@@ -703,12 +703,16 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         notifyAll();
     }
 
-    private void startupWithServerState(State state) {
+    private void startupWithServerState(State state,boolean isTreeCnxEnabled) {
         if (sessionTracker == null) {
             createSessionTracker();
         }
         startSessionTracker();
-        setupRequestProcessors();
+        if(isTreeCnxEnabled){
+            setupTreeRequestProcessors();
+        }else{
+            setupRequestProcessors();
+        }
 
         startRequestThrottler();
 
@@ -740,6 +744,14 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
     }
 
     protected void setupRequestProcessors() {
+        RequestProcessor finalProcessor = new FinalRequestProcessor(this);
+        RequestProcessor syncProcessor = new SyncRequestProcessor(this, finalProcessor);
+        ((SyncRequestProcessor) syncProcessor).start();
+        firstProcessor = new PrepRequestProcessor(this, syncProcessor);
+        ((PrepRequestProcessor) firstProcessor).start();
+    }
+
+    protected void setupTreeRequestProcessors() {
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         RequestProcessor syncProcessor = new SyncRequestProcessor(this, finalProcessor);
         ((SyncRequestProcessor) syncProcessor).start();

@@ -305,7 +305,7 @@ public class LearnerTest extends ZKTestCase {
             sl.leaderIs = BinaryInputArchive.getArchive(new ByteArrayInputStream(baos.toByteArray()));
 
             try {
-                sl.syncWithLeader(3);
+                sl.syncWithLeader(3,true,0);
             } catch (EOFException e) {
             }
 
@@ -353,7 +353,7 @@ public class LearnerTest extends ZKTestCase {
             sl.leaderIs = BinaryInputArchive.getArchive(new ByteArrayInputStream(baos.toByteArray()));
 
             try {
-                sl.syncWithLeader(3);
+                sl.syncWithLeader(3,true,0);
             } catch (EOFException e) {
             }
 

@@ -1405,7 +1405,7 @@ public class Leader extends LearnerMaster {
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
             if(self.getIsTreeCnxEnabled()){
-                LOG.debug("Send propose packet to childPeer only");
+                LOG.info("Send propose packet to childPeer only");
                 sendPacketToChildPeer(pp);
             }else{
                 sendPacket(pp);

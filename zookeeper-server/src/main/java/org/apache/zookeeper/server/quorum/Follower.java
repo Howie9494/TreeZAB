@@ -76,6 +76,9 @@ public class Follower extends Learner implements ChildMaster{
 
     ObserverMaster om;
 
+    private boolean parentIsLeader = true;
+    private int childNum;
+
     private final List<ServerSocket> serverSockets = new LinkedList<>();
 
     Follower(final QuorumPeer self, final FollowerZooKeeperServer zk) throws IOException {
@@ -158,15 +161,16 @@ public class Follower extends Learner implements ChildMaster{
                     readPacket(qp);
                     if(qp.getType() == Leader.BuildTreeCnx){
                         Long parentSid = ByteBuffer.wrap(qp.getData()).getLong(0);
-                        int childNum = ByteBuffer.wrap(qp.getData()).getInt(8);
+                        childNum = ByteBuffer.wrap(qp.getData()).getInt(8);
                         LOG.info("The parent sid of the CnxTree received for connection is {},The number of child nodes is {}",parentSid,childNum);
                         // Start thread that waits for connection requests from
                         // new followers.
                         if(childNum != 0){
-                            cnxAcceptor = new Follower.ChildCnxAcceptor(childNum);
+                            cnxAcceptor = new Follower.ChildCnxAcceptor();
                             cnxAcceptor.start();
                         }
                         if(parentSid != leaderServer.getId()){
+                            parentIsLeader = false;
                             QuorumServer parentServer = findCnxFollower(parentSid);
                             connectToParent(parentServer.treeAddr,parentServer.hostname);
                         }
@@ -188,7 +192,7 @@ public class Follower extends Learner implements ChildMaster{
                 long startTime = Time.currentElapsedTime();
                 self.setLeaderAddressAndId(leaderServer.addr, leaderServer.getId());
                 self.setZabState(QuorumPeer.ZabState.SYNCHRONIZATION);
-                syncWithLeader(newEpochZxid);
+                syncWithLeader(newEpochZxid,self.getIsTreeCnxEnabled(),childNum);
                 self.setZabState(QuorumPeer.ZabState.BROADCAST);
                 completedSync = true;
                 long syncTime = Time.currentElapsedTime() - startTime;
@@ -201,6 +205,8 @@ public class Follower extends Learner implements ChildMaster{
                 } else {
                     om = null;
                 }
+                //Start a thread that accepts follower packet
+                new FollowerPacketProcess(fzk).start();
                 // create a reusable packet to reduce gc impact
                 QuorumPacket qp = new QuorumPacket();
                 while (this.isRunning()) {
@@ -230,6 +236,14 @@ public class Follower extends Learner implements ChildMaster{
                 messageTracker.dumpToLog(leaderAddr.toString());
             }
         }
+    }
+
+    public boolean getParentIsLeader() {
+        return parentIsLeader;
+    }
+
+    public int getChildNum() {
+        return childNum;
     }
 
     synchronized void closeSockets() {
@@ -285,19 +299,67 @@ public class Follower extends Learner implements ChildMaster{
         return self.tick.get() + self.initLimit + self.syncLimit;
     }
 
+    public void forward(Request request) {
+        byte[] data = SerializeUtils.serializeRequest(request);
+        QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid, data, null);
+        sendPacketToChildPeer(pp);
+    }
+
+    private void sendPacketToChildPeer(QuorumPacket pp) {
+        synchronized (childs) {
+            for (ChildHandler f : childs) {
+                f.queuePacket(pp);
+            }
+        }
+    }
+
+    public void sendAck(byte[] data,long zxid) {
+        ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());
+        QuorumPacket qp = new QuorumPacket(Leader.ACK,zxid,data,null);
+
+        try {
+            if(parentIsLeader){
+                writePacket(qp,false);
+            }else {
+                writeFollowerPacket(qp,false);
+            }
+        } catch (IOException e) {
+            LOG.error("Exception during packet send");
+        }
+    }
+
+    class FollowerPacketProcess extends ZooKeeperCriticalThread{
+
+        public FollowerPacketProcess(FollowerZooKeeperServer fzk) {
+            super("FollowerPacketProcess:" + fzk.getServerId(), fzk.getZooKeeperServerListener());
+        }
+
+        @Override
+        public void run() {
+            try {
+                Thread.sleep(2000);
+                QuorumPacket qp = new QuorumPacket();
+                while (isRunning()) {
+                    readFollowerPacket(qp);
+                    processPacket(qp);
+                }
+            } catch (Exception e) {
+                LOG.error("Exception for reading follower information:{}",e.getMessage());
+            }
+        }
+    }
+
     class ChildCnxAcceptor extends ZooKeeperCriticalThread {
 
         private final AtomicBoolean stop = new AtomicBoolean(false);
         private final AtomicBoolean fail = new AtomicBoolean(false);
-        private final int childNum;
 
-        public ChildCnxAcceptor(int childNum) {
+        public ChildCnxAcceptor() {
             super("ChildCnxAcceptor-" + serverSockets.stream()
                             .map(ServerSocket::getLocalSocketAddress)
                             .map(Objects::toString)
                             .collect(Collectors.joining("|")),
                     zk.getZooKeeperServerListener());
-            this.childNum = childNum;
         }
 
         @Override
@@ -430,8 +492,11 @@ public class Follower extends Learner implements ChildMaster{
                 QuorumVerifier qv = self.configFromString(new String(setDataTxn.getData(), UTF_8));
                 self.setLastSeenQuorumVerifier(qv, true);
             }
-
-            fzk.logRequest(hdr, txn, digest);
+            if(self.getIsTreeCnxEnabled() && childNum > 0){
+                fzk.forwardAndLogRequest(hdr, txn, digest);
+            }else{
+                fzk.logRequest(hdr, txn, digest);
+            }
             if (hdr != null) {
                 /*
                  * Request header is created only by the leader, so this is only set
@@ -492,6 +557,8 @@ public class Follower extends Learner implements ChildMaster{
         case Leader.SYNC:
             fzk.sync();
             break;
+        case Leader.ACK:
+//            fzk.RecvAckRequest();
         default:
             LOG.warn("Unknown packet type: {}", LearnerHandler.packetToString(qp));
             break;

@@ -214,6 +214,26 @@ public class Learner {
         }
     }
 
+    void writeFollowerPacket(QuorumPacket pp, boolean flush) throws IOException {
+        if (asyncSending) {
+            sender.queuePacket(pp);
+        } else {
+            writeFollowerPacketNow(pp, flush);
+        }
+    }
+
+    void writeFollowerPacketNow(QuorumPacket pp, boolean flush) throws IOException {
+        synchronized (parentOs) {
+            if (pp != null) {
+                messageTracker.trackSent(pp.getType());
+                parentOs.writeRecord(pp, "packet");
+            }
+            if (flush) {
+                parentBufferedOutput.flush();
+            }
+        }
+    }
+
     /**
      * Start thread that will forward any packet in the queue to the leader
      */
@@ -238,6 +258,28 @@ public class Learner {
             final long traceMask =
                 (pp.getType() == Leader.PING) ? ZooTrace.SERVER_PING_TRACE_MASK
                     : ZooTrace.SERVER_PACKET_TRACE_MASK;
+
+            ZooTrace.logQuorumPacket(LOG, traceMask, 'i', pp);
+        }
+    }
+
+    /**
+     * read a packet from the follower
+     *
+     * @param pp
+     *                the packet to be instantiated
+     * @throws IOException
+     */
+    void readFollowerPacket(QuorumPacket pp) throws IOException {
+        LOG.info("readFollowerPacket");
+        synchronized (parentIs) {
+            parentIs.readRecord(pp, "packet");
+            messageTracker.trackReceived(pp.getType());
+        }
+        if (LOG.isTraceEnabled()) {
+            final long traceMask =
+                    (pp.getType() == Leader.PING) ? ZooTrace.SERVER_PING_TRACE_MASK
+                            : ZooTrace.SERVER_PACKET_TRACE_MASK;
 
             ZooTrace.logQuorumPacket(LOG, traceMask, 'i', pp);
         }
@@ -723,7 +765,7 @@ public class Learner {
      * @throws IOException
      * @throws InterruptedException
      */
-    protected void syncWithLeader(long newLeaderZxid) throws Exception {
+    protected void syncWithLeader(long newLeaderZxid,boolean isTreeCnxEnabled,int childNum) throws Exception {
         QuorumPacket ack = new QuorumPacket(Leader.ACK, 0, null, null);
         QuorumPacket qp = new QuorumPacket();
         long newEpoch = ZxidUtils.getEpochFromZxid(newLeaderZxid);
@@ -934,11 +976,15 @@ public class Learner {
                     // ZOOKEEPER-3911: make sure sync the uncommitted logs before commit them (ACK NEWLEADER).
                     sock.setSoTimeout(self.tickTime * self.syncLimit);
                     self.setSyncMode(QuorumPeer.SyncMode.NONE);
-                    zk.startupWithoutServing();
+                    zk.startupWithoutServing(isTreeCnxEnabled);
                     if (zk instanceof FollowerZooKeeperServer) {
                         FollowerZooKeeperServer fzk = (FollowerZooKeeperServer) zk;
                         for (PacketInFlight p : packetsNotCommitted) {
-                            fzk.logRequest(p.hdr, p.rec, p.digest);
+                            if(isTreeCnxEnabled && childNum > 0){
+                                fzk.forwardAndLogRequest(p.hdr,p.rec,p.digest);
+                            }else{
+                                fzk.logRequest(p.hdr, p.rec, p.digest);
+                            }
                         }
                         packetsNotCommitted.clear();
                     }
@@ -964,7 +1010,11 @@ public class Learner {
         if (zk instanceof FollowerZooKeeperServer) {
             FollowerZooKeeperServer fzk = (FollowerZooKeeperServer) zk;
             for (PacketInFlight p : packetsNotCommitted) {
-                fzk.logRequest(p.hdr, p.rec, p.digest);
+                if(isTreeCnxEnabled && childNum > 0){
+                    fzk.forwardAndLogRequest(p.hdr,p.rec,p.digest);
+                }else{
+                    fzk.logRequest(p.hdr, p.rec, p.digest);
+                }
             }
             for (Long zxid : packetsCommitted) {
                 fzk.commit(zxid);
