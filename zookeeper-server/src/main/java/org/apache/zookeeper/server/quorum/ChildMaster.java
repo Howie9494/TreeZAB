@@ -1,6 +1,7 @@
 package org.apache.zookeeper.server.quorum;
 
 import java.net.Socket;
+import java.util.ArrayList;
 
 public interface ChildMaster {
 
@@ -34,4 +35,10 @@ public interface ChildMaster {
      * @return next deadline tick marking observer sync (steady state)
      */
     abstract int getTickOfInitialAckDeadline();
+
+    abstract void setTreeAckMap(Long zxid,Long sid);
+
+    abstract ArrayList<Long> getTreeAckMap(Long zxid);
+
+    abstract void removeTreeAckMap(Long zxid);
 }

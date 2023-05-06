@@ -1,13 +1,17 @@
 package org.apache.zookeeper.server.quorum;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.RequestProcessor;
+import org.apache.zookeeper.server.ServerMetrics;
 import org.apache.zookeeper.server.ZooKeeperCriticalThread;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -29,7 +33,7 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
     /**
      * Incoming requests.
      */
-    protected LinkedBlockingQueue<Request> queuedRequests = new LinkedBlockingQueue<Request>();
+    protected LinkedBlockingQueue<Long> queuedRequests = new LinkedBlockingQueue<Long>();
 
     public SendTreeAckRequestProcessor(FollowerZooKeeperServer zks,Learner learner){
         super("SendTreeAckRequestProcessor:" + zks.getServerId(), zks.getZooKeeperServerListener());
@@ -40,24 +44,47 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
     @Override
     public void run() {
         try {
-            //收到数量==childnum 把sid都取出来加上自己的打包发给parent
-            int childNum = zks.getFollower().getChildNum();
-            parentIsLeader = zks.getFollower().getParentIsLeader();
+            Follower follower = zks.getFollower();
+            int childNum = follower.getChildNum();
+            parentIsLeader = follower.getParentIsLeader();
 
-            Request request = queuedRequests.take();
             do {
-                if(queuedRequests.size() < childNum){
-                    synchronized (this){
-                        while(queuedRequests.size() < childNum){
-                            wait();
-                        }
+                Long zxid =queuedRequests.poll();
+                if(zxid == null){
+                    if(parentIsLeader){
+                        learner.bufferedOutput.flush();
+                    }else{
+                        learner.parentBufferedOutput.flush();
                     }
+                    zxid = queuedRequests.take();
                 }
 
                 byte[] data = new byte[(childNum + 1) << 3];
-                long zxid = request.getHdr().getZxid();
-                zks.getFollower().sendAck(data,zxid);
+                if(childNum == 0){
+                    follower.sendAck(data,zxid);
+                    LOG.info("SendTreeAckRequestProcessor sendAck,childNum == 0");
+                }else{
+                    ArrayList<Long> sidList = follower.getTreeAckMap(zxid);
+                    if(sidList == null || sidList.size() != childNum){
+                        synchronized (this){
+                            while(sidList == null || sidList.size() != childNum){
+                                wait();
+                                sidList = follower.getTreeAckMap(zxid);
+                            }
+                        }
+                    }
 
+                    ByteBuffer buffer = ByteBuffer.wrap(data);
+                    int index = 0;
+                    for (Long sid : sidList) {
+                        buffer.putLong(index,sid);
+                        index += 8;
+                        LOG.info("SendTreeAckRequestProcessor -- receive sid{}",sid);
+                    }
+                    follower.removeTreeAckMap(zxid);
+                    follower.sendAck(data,zxid);
+                    LOG.info("SendTreeAckRequestProcessor sendAck,childNum != 0");
+                }
             }while(stoppedMainLoop);
         } catch (Exception e) {
             handleException(this.getName(), e);
@@ -66,8 +93,14 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
 
     @Override
     public void processRequest(Request request){
-        LOG.debug("Processing request:: {}", request);
-        queuedRequests.add(request);
+        if (request.type != ZooDefs.OpCode.sync) {
+            request.logLatency(ServerMetrics.getMetrics().PROPOSAL_ACK_CREATION_LATENCY);
+            queuedRequests.add(request.getHdr().getZxid());
+            wakeup();
+        }
+    }
+
+    public void ackListCheck(){
         wakeup();
     }
 

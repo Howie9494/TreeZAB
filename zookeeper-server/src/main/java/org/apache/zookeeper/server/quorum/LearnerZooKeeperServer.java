@@ -41,7 +41,8 @@ public abstract class LearnerZooKeeperServer extends QuorumZooKeeperServer {
      */
     protected CommitProcessor commitProcessor;
     protected SyncRequestProcessor syncProcessor;
-    protected ForwardProposalRequestProcessor forwardProcessor;
+    protected ForwardProposalRequestProcessor forwardProposalProcessor;
+    protected ForwardCommitRequestProcessor forwardCommitProcessor;
     protected SendTreeAckRequestProcessor ackProcessor;
 
     public LearnerZooKeeperServer(FileTxnSnapLog logFactory, int tickTime, int minSessionTimeout, int maxSessionTimeout, int listenBacklog, ZKDatabase zkDb, QuorumPeer self) throws IOException {

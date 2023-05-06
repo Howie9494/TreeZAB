@@ -105,10 +105,11 @@ public class Learner {
     }
 
     LearnerSender sender = null;
+    ParentSender parentSender = null;
     protected InputArchive leaderIs;
     protected OutputArchive leaderOs;
     protected InputArchive parentIs;
-    protected OutputArchive parentOs;
+    protected OutputArchive parentOs = null;
     /** the protocol version of the leader */
     protected int leaderProtocolVersion = 0x01;
 
@@ -216,13 +217,13 @@ public class Learner {
 
     void writeFollowerPacket(QuorumPacket pp, boolean flush) throws IOException {
         if (asyncSending) {
-            sender.queuePacket(pp);
+            parentSender.queuePacket(pp);
         } else {
             writeFollowerPacketNow(pp, flush);
         }
     }
 
-    void writeFollowerPacketNow(QuorumPacket pp, boolean flush) throws IOException {
+    void writeFollowerPacketNow (QuorumPacket pp, boolean flush) throws IOException {
         synchronized (parentOs) {
             if (pp != null) {
                 messageTracker.trackSent(pp.getType());
@@ -240,6 +241,11 @@ public class Learner {
     protected void startSendingThread() {
         sender = new LearnerSender(this);
         sender.start();
+    }
+
+    protected void startParentSendThread(){
+        parentSender = new ParentSender(this);
+        parentSender.start();
     }
 
     /**
@@ -553,7 +559,7 @@ public class Learner {
         parentBufferedOutput = new BufferedOutputStream(parentSock.getOutputStream());
         parentOs = BinaryOutputArchive.getArchive(parentBufferedOutput);
         if (asyncSending) {
-            startSendingThread();
+            startParentSendThread();
         }
     }
 
@@ -620,6 +626,8 @@ public class Learner {
                         ((SSLSocket) sock).startHandshake();
                     }
                     sock.setTcpNoDelay(nodelay);
+                    // TODO: 2023/5/5  readPacket timeout
+                    sock.setSoTimeout(200000);
                     break;
                 } catch (IOException e) {
                     remainingTimeout = connectTimeout - (int) ((nanoTime() - startNanoTime) / 1_000_000);
@@ -980,11 +988,7 @@ public class Learner {
                     if (zk instanceof FollowerZooKeeperServer) {
                         FollowerZooKeeperServer fzk = (FollowerZooKeeperServer) zk;
                         for (PacketInFlight p : packetsNotCommitted) {
-                            if(isTreeCnxEnabled && childNum > 0){
-                                fzk.forwardAndLogRequest(p.hdr,p.rec,p.digest);
-                            }else{
-                                fzk.logRequest(p.hdr, p.rec, p.digest);
-                            }
+                            fzk.logRequest(p.hdr, p.rec, p.digest);
                         }
                         packetsNotCommitted.clear();
                     }
@@ -1010,11 +1014,7 @@ public class Learner {
         if (zk instanceof FollowerZooKeeperServer) {
             FollowerZooKeeperServer fzk = (FollowerZooKeeperServer) zk;
             for (PacketInFlight p : packetsNotCommitted) {
-                if(isTreeCnxEnabled && childNum > 0){
-                    fzk.forwardAndLogRequest(p.hdr,p.rec,p.digest);
-                }else{
-                    fzk.logRequest(p.hdr, p.rec, p.digest);
-                }
+                fzk.logRequest(p.hdr, p.rec, p.digest);
             }
             for (Long zxid : packetsCommitted) {
                 fzk.commit(zxid);
@@ -1044,6 +1044,13 @@ public class Learner {
         } else {
             // New server type need to handle in-flight packets
             throw new UnsupportedOperationException("Unknown server type");
+        }
+    }
+
+    protected void ackListCheck(){
+        if (zk instanceof FollowerZooKeeperServer) {
+            FollowerZooKeeperServer fzk = (FollowerZooKeeperServer) zk;
+            fzk.ackListCheck();
         }
     }
 

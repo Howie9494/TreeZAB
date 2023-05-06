@@ -35,6 +35,8 @@ import java.util.LinkedList;
 import java.util.Set;
 import java.util.Optional;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -78,6 +80,8 @@ public class Follower extends Learner implements ChildMaster{
 
     private boolean parentIsLeader = true;
     private int childNum;
+
+    private HashMap<Long,ArrayList<Long>> treeAckMap = new HashMap<Long,ArrayList<Long>>();
 
     private final List<ServerSocket> serverSockets = new LinkedList<>();
 
@@ -184,9 +188,9 @@ public class Follower extends Learner implements ChildMaster{
                 long newEpoch = ZxidUtils.getEpochFromZxid(newEpochZxid);
                 if (newEpoch < self.getAcceptedEpoch()) {
                     LOG.error("Proposed leader epoch "
-                              + ZxidUtils.zxidToString(newEpochZxid)
-                              + " is less than our accepted epoch "
-                              + ZxidUtils.zxidToString(self.getAcceptedEpoch()));
+                             + ZxidUtils.zxidToString(newEpochZxid)
+                             + " is less than our accepted epoch "
+                             + ZxidUtils.zxidToString(self.getAcceptedEpoch()));
                     throw new IOException("Error: Epoch of leader is lower");
                 }
                 long startTime = Time.currentElapsedTime();
@@ -205,8 +209,10 @@ public class Follower extends Learner implements ChildMaster{
                 } else {
                     om = null;
                 }
-                //Start a thread that accepts follower packet
-                new FollowerPacketProcess(fzk).start();
+                if (!parentIsLeader) {
+                    //Start a thread that accepts follower packet
+                    new FollowerPacketProcess(fzk).start();
+                }
                 // create a reusable packet to reduce gc impact
                 QuorumPacket qp = new QuorumPacket();
                 while (this.isRunning()) {
@@ -244,6 +250,24 @@ public class Follower extends Learner implements ChildMaster{
 
     public int getChildNum() {
         return childNum;
+    }
+
+    public ArrayList<Long> getTreeAckMap(Long zxid) {
+        return treeAckMap.getOrDefault(zxid, null);
+    }
+
+    public void setTreeAckMap(Long zxid,Long sid) {
+        if(!treeAckMap.containsKey(zxid)){
+            ArrayList<Long> sidList = new ArrayList<>();
+            treeAckMap.put(zxid,sidList);
+        }else{
+            treeAckMap.get(zxid).add(sid);
+        }
+        ackListCheck();
+    }
+
+    public void removeTreeAckMap(Long zxid){
+        treeAckMap.remove(zxid);
     }
 
     synchronized void closeSockets() {
@@ -299,9 +323,15 @@ public class Follower extends Learner implements ChildMaster{
         return self.tick.get() + self.initLimit + self.syncLimit;
     }
 
-    public void forward(Request request) {
+    public void forwardProposal(Request request) {
         byte[] data = SerializeUtils.serializeRequest(request);
         QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid, data, null);
+        sendPacketToChildPeer(pp);
+    }
+
+    public void forwardCommit(Request request) {
+        byte[] data = SerializeUtils.serializeRequest(request);
+        QuorumPacket pp = new QuorumPacket(Leader.COMMIT, request.zxid, data, null);
         sendPacketToChildPeer(pp);
     }
 
@@ -337,7 +367,6 @@ public class Follower extends Learner implements ChildMaster{
         @Override
         public void run() {
             try {
-                Thread.sleep(2000);
                 QuorumPacket qp = new QuorumPacket();
                 while (isRunning()) {
                     readFollowerPacket(qp);
@@ -432,6 +461,8 @@ public class Follower extends Learner implements ChildMaster{
                     // in LearnerHandler switch to the syncLimit
                     socket.setSoTimeout(self.tickTime * self.initLimit);
                     socket.setTcpNoDelay(nodelay);
+                    // TODO: 2023/5/5 readPacket timeout
+                    socket.setSoTimeout(200000);
 
                     BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
                     ChildHandler ch = new ChildHandler(socket, is, Follower.this);
@@ -492,7 +523,7 @@ public class Follower extends Learner implements ChildMaster{
                 QuorumVerifier qv = self.configFromString(new String(setDataTxn.getData(), UTF_8));
                 self.setLastSeenQuorumVerifier(qv, true);
             }
-            if(self.getIsTreeCnxEnabled() && childNum > 0){
+            if(self.getIsTreeCnxEnabled()){
                 fzk.forwardAndLogRequest(hdr, txn, digest);
             }else{
                 fzk.logRequest(hdr, txn, digest);
@@ -517,7 +548,11 @@ public class Follower extends Learner implements ChildMaster{
             break;
         case Leader.COMMIT:
             ServerMetrics.getMetrics().LEARNER_COMMIT_RECEIVED_COUNT.add(1);
-            fzk.commit(qp.getZxid());
+            if(self.getIsTreeCnxEnabled()){
+                fzk.forwardAndCommit(qp.getZxid());
+            }else{
+                fzk.commit(qp.getZxid());
+            }
             if (om != null) {
                 final long startTime = Time.currentElapsedTime();
                 om.proposalCommitted(qp.getZxid());
@@ -557,8 +592,6 @@ public class Follower extends Learner implements ChildMaster{
         case Leader.SYNC:
             fzk.sync();
             break;
-        case Leader.ACK:
-//            fzk.RecvAckRequest();
         default:
             LOG.warn("Unknown packet type: {}", LearnerHandler.packetToString(qp));
             break;

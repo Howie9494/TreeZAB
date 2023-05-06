@@ -87,8 +87,11 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         ackProcessor = new SendTreeAckRequestProcessor(this,getFollower());
         ackProcessor.start();
         syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()));
+//        syncProcessor = new SyncRequestProcessor(this, ackProcessor);
         syncProcessor.start();
-        forwardProcessor = new ForwardProposalRequestProcessor(this,syncProcessor);
+//        SyncRequestProcessor syncRequestProcessor = new SyncRequestProcessor(this,ackProcessor);
+        forwardProposalProcessor = new ForwardProposalRequestProcessor(this,syncProcessor);
+        forwardCommitProcessor = new ForwardCommitRequestProcessor(this,commitProcessor);
     }
 
     LinkedBlockingQueue<Request> pendingTxns = new LinkedBlockingQueue<Request>();
@@ -108,16 +111,11 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         if ((request.zxid & 0xffffffffL) != 0) {
             pendingTxns.add(request);
         }
-        forwardProcessor.processRequest(request);
+        forwardProposalProcessor.processRequest(request);
     }
 
-    public void RecvAckRequest(TxnHeader hdr, Record txn, TxnDigest digest,Long myid){
-        Request request = new Request(hdr.getClientId(), hdr.getCxid(), hdr.getType(), hdr, txn, hdr.getZxid());
-        request.setTxnDigest(digest);
-        if ((request.zxid & 0xffffffffL) != 0) {
-            pendingTxns.add(request);
-        }
-        ackProcessor.processRequest(request);
+    public void ackListCheck(){
+        ackProcessor.ackListCheck();
     }
 
     /**
@@ -140,6 +138,22 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         Request request = pendingTxns.remove();
         request.logLatency(ServerMetrics.getMetrics().COMMIT_PROPAGATION_LATENCY);
         commitProcessor.commit(request);
+    }
+
+    public void forwardAndCommit(long zxid){
+        if (pendingTxns.size() == 0) {
+            LOG.warn("Committing " + Long.toHexString(zxid) + " without seeing txn");
+            return;
+        }
+        long firstElementZxid = pendingTxns.element().zxid;
+        if (firstElementZxid != zxid) {
+            LOG.error("Committing zxid 0x" + Long.toHexString(zxid)
+                    + " but next pending txn 0x" + Long.toHexString(firstElementZxid));
+            ServiceUtils.requestSystemExit(ExitCode.UNMATCHED_TXN_COMMIT.getValue());
+        }
+        Request request = pendingTxns.remove();
+        request.logLatency(ServerMetrics.getMetrics().COMMIT_PROPAGATION_LATENCY);
+        forwardCommitProcessor.processRequest(request);
     }
 
     public synchronized void sync() {

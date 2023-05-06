@@ -13,11 +13,10 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.Objects;
+import java.nio.ByteBuffer;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import static org.apache.zookeeper.server.quorum.LearnerHandler.packetToString;
 
 /**
  * There will be an instance of this class created by the Follower for each
@@ -52,17 +51,6 @@ public class ChildHandler extends ZooKeeperThread {
     volatile long tickOfNextAckDeadline;
 
     final LinkedBlockingQueue<QuorumPacket> queuedPackets = new LinkedBlockingQueue<QuorumPacket>();
-    private final AtomicLong queuedPacketsSize = new AtomicLong();
-
-    protected final AtomicLong packetsReceived = new AtomicLong();
-    protected final AtomicLong packetsSent = new AtomicLong();
-    /**
-     * Marker packets would be added to quorum packet queue after every
-     * markerPacketInterval packets.
-     * It is ok if packetCounter overflows.
-     */
-    private final int markerPacketInterval = 1000;
-    private AtomicInteger packetCounter = new AtomicInteger();
 
     final ChildMaster childMaster;
 
@@ -99,28 +87,34 @@ public class ChildHandler extends ZooKeeperThread {
         try {
             childMaster.addChildHandler(this);
             LOG.info("add child handler : {} to childs",sock.getRemoteSocketAddress());
-            tickOfNextAckDeadline = childMaster.getTickOfInitialAckDeadline();
+//            tickOfNextAckDeadline = childMaster.getTickOfInitialAckDeadline();
 
-            ia = BinaryInputArchive.getArchive(bufferedInput);
+            ia = BinaryInputArchive.getArchive(new BufferedInputStream(bufferedInput));
             bufferedOutput = new BufferedOutputStream(sock.getOutputStream());
             oa = BinaryOutputArchive.getArchive(bufferedOutput);
 
             childMaster.registerChildHandlerBean(this,sock);
-
             // Start thread that blast packets in the queue to child
             startSendingPackets();
 
             while(true){
-//                QuorumPacket qp = new QuorumPacket();
-//                ia.readRecord(qp, "packet");
-                try {
-                    Thread.sleep(20000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                QuorumPacket qp = new QuorumPacket();
+                ia.readRecord(qp, "packet");
+                messageTracker.trackReceived(qp.getType());
+                if(qp.getType() == Leader.ACK){
+                    ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
+                    Long zxid = qp.getZxid();
+                    for(int i = 0;i < qp.getData().length;i += 8){
+                        childMaster.setTreeAckMap(zxid,wrap.getLong(i));
+                    }
+                }else{
+                    LOG.warn("unexpected quorum packet, type: {}", packetToString(qp));
+                    break;
                 }
             }
         } catch (IOException e) {
             LOG.error("Unexpected exception in ChildHandler: ", e);
+            childMaster.removeChildHandler(this);
             closeSocket();
         } finally {
             String remoteAddr = getRemoteAddress();
@@ -168,23 +162,11 @@ public class ChildHandler extends ZooKeeperThread {
                     p = queuedPackets.take();
                 }
 
-                ServerMetrics.getMetrics().LEARNER_HANDLER_QP_SIZE.add(Long.toString(this.sid), queuedPackets.size());
-                if (p instanceof ChildHandler.MarkerQuorumPacket) {
-                    ChildHandler.MarkerQuorumPacket m = (ChildHandler.MarkerQuorumPacket) p;
-                    ServerMetrics.getMetrics().LEARNER_HANDLER_QP_TIME
-                            .add(Long.toString(this.sid), (System.nanoTime() - m.time) / 1000000L);
-                    continue;
-                }
-
-                queuedPacketsSize.addAndGet(-packetSize(p));
-
                 if (p == proposalOfDeath) {
                     // Packet of death!
                     break;
                 }
-
                 oa.writeRecord(p, "packet");
-                packetsSent.incrementAndGet();
                 messageTracker.trackSent(p.getType());
             }catch (IOException e) {
                 LOG.error("Exception while sending packets in ChildHandler", e);
@@ -199,29 +181,6 @@ public class ChildHandler extends ZooKeeperThread {
 
     void queuePacket(QuorumPacket p) {
         queuedPackets.add(p);
-        // Add a MarkerQuorumPacket at regular intervals.
-        if (shouldSendMarkerPacketForLogging() && packetCounter.getAndIncrement() % markerPacketInterval == 0) {
-            queuedPackets.add(new ChildHandler.MarkerQuorumPacket(System.nanoTime()));
-        }
-        queuedPacketsSize.addAndGet(packetSize(p));
-    }
-
-    /**
-     * Tests need not send marker packets as they are only needed to
-     * log quorum packet delays
-     */
-    protected boolean shouldSendMarkerPacketForLogging() {
-        return true;
-    }
-
-    static long packetSize(QuorumPacket p) {
-        /* Approximate base size of QuorumPacket: int + long + byte[] + List */
-        long size = 4 + 8 + 8 + 8;
-        byte[] data = p.getData();
-        if (data != null) {
-            size += data.length;
-        }
-        return size;
     }
 
     void closeSocket() {
@@ -259,29 +218,4 @@ public class ChildHandler extends ZooKeeperThread {
         childMaster.unregisterChildHandlerBean(this);
     }
 
-    private static class MarkerQuorumPacket extends QuorumPacket {
-
-        long time;
-        MarkerQuorumPacket(long time) {
-            this.time = time;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(time);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            ChildHandler.MarkerQuorumPacket that = (ChildHandler.MarkerQuorumPacket) o;
-            return time == that.time;
-        }
-
-    }
 }
