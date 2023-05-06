@@ -86,10 +86,9 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         ((FollowerRequestProcessor) firstProcessor).start();
         ackProcessor = new SendTreeAckRequestProcessor(this,getFollower());
         ackProcessor.start();
-        syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()));
-//        syncProcessor = new SyncRequestProcessor(this, ackProcessor);
+//        syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()));
+        syncProcessor = new SyncRequestProcessor(this, ackProcessor);
         syncProcessor.start();
-//        SyncRequestProcessor syncRequestProcessor = new SyncRequestProcessor(this,ackProcessor);
         forwardProposalProcessor = new ForwardProposalRequestProcessor(this,syncProcessor);
         forwardCommitProcessor = new ForwardCommitRequestProcessor(this,commitProcessor);
     }

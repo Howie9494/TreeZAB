@@ -259,6 +259,7 @@ public class Follower extends Learner implements ChildMaster{
     public void setTreeAckMap(Long zxid,Long sid) {
         if(!treeAckMap.containsKey(zxid)){
             ArrayList<Long> sidList = new ArrayList<>();
+            sidList.add(sid);
             treeAckMap.put(zxid,sidList);
         }else{
             treeAckMap.get(zxid).add(sid);
