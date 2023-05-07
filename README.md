@@ -5,7 +5,7 @@ Based on https://www.apache.org/dyn/closer.lua/zookeeper/zookeeper-3.7.1/apache-
 
 ZAB cluster performance optimization based on tree.
 
-###介绍
+### 介绍
 基于树结构的事务提交可以通过zoo.cfg设置是否开启（默认开启）。
 ```
 isTreeCnxEnabled=false
@@ -16,7 +16,7 @@ isTreeCnxEnabled=false
 
 3. 某种程度上更容易导致Recovery的发生，而Recovery耗时长。在集群正常运行的情况下树结构将Leader的压力分解给Follower，当事务请求量大时使吞吐量可以提升，但需要更加注意避免Recovery的发生。
 
-###Intro
+### Intro
 Tree based transaction commit can be set to be on or off via zoo.cfg (it is on by default).
 ```
 isTreeCnxEnabled=false
