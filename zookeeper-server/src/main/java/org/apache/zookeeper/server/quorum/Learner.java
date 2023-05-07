@@ -277,10 +277,10 @@ public class Learner {
      * @throws IOException
      */
     void readFollowerPacket(QuorumPacket pp) throws IOException {
-        LOG.info("readFollowerPacket");
         synchronized (parentIs) {
             parentIs.readRecord(pp, "packet");
             messageTracker.trackReceived(pp.getType());
+            LOG.info("Received a message from parent, type : {}",pp.getType());
         }
         if (LOG.isTraceEnabled()) {
             final long traceMask =

@@ -87,7 +87,7 @@ public class ChildHandler extends ZooKeeperThread {
         try {
             childMaster.addChildHandler(this);
             LOG.info("add child handler : {} to childs",sock.getRemoteSocketAddress());
-//            tickOfNextAckDeadline = childMaster.getTickOfInitialAckDeadline();
+            tickOfNextAckDeadline = childMaster.getTickOfInitialAckDeadline();
 
             ia = BinaryInputArchive.getArchive(new BufferedInputStream(bufferedInput));
             bufferedOutput = new BufferedOutputStream(sock.getOutputStream());
@@ -101,6 +101,7 @@ public class ChildHandler extends ZooKeeperThread {
                 QuorumPacket qp = new QuorumPacket();
                 ia.readRecord(qp, "packet");
                 messageTracker.trackReceived(qp.getType());
+                LOG.info("The ChildHandler receives a message from the child, type: {}",qp.getType());
                 if(qp.getType() == Leader.ACK){
                     ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
                     Long zxid = qp.getZxid();
@@ -166,6 +167,7 @@ public class ChildHandler extends ZooKeeperThread {
                     // Packet of death!
                     break;
                 }
+                LOG.info("ChildHandler sends a message to child.");
                 oa.writeRecord(p, "packet");
                 messageTracker.trackSent(p.getType());
             }catch (IOException e) {
