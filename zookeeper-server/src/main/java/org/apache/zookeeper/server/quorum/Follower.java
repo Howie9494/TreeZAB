@@ -462,8 +462,6 @@ public class Follower extends Learner implements ChildMaster{
                     // in LearnerHandler switch to the syncLimit
                     socket.setSoTimeout(self.tickTime * self.initLimit);
                     socket.setTcpNoDelay(nodelay);
-                    // TODO: 2023/5/5 readPacket timeout
-                    socket.setSoTimeout(200000);
 
                     BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
                     ChildHandler ch = new ChildHandler(socket, is, Follower.this);

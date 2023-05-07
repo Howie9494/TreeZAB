@@ -28,6 +28,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -278,7 +279,15 @@ public class Learner {
      */
     void readFollowerPacket(QuorumPacket pp) throws IOException {
         synchronized (parentIs) {
-            parentIs.readRecord(pp, "packet");
+            boolean loopRead = true;
+            while(loopRead){
+                try {
+                    parentIs.readRecord(pp, "packet");
+                    loopRead = false;
+                } catch (SocketTimeoutException e) {
+                    //No processing required
+                }
+            }
             messageTracker.trackReceived(pp.getType());
             LOG.info("Received a message from parent, type : {}",pp.getType());
         }
@@ -626,8 +635,6 @@ public class Learner {
                         ((SSLSocket) sock).startHandshake();
                     }
                     sock.setTcpNoDelay(nodelay);
-                    // TODO: 2023/5/5  readPacket timeout
-                    sock.setSoTimeout(200000);
                     break;
                 } catch (IOException e) {
                     remainingTimeout = connectTimeout - (int) ((nanoTime() - startNanoTime) / 1_000_000);

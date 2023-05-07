@@ -13,6 +13,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -98,8 +99,16 @@ public class ChildHandler extends ZooKeeperThread {
             startSendingPackets();
 
             while(true){
+                boolean loopRead = true;
                 QuorumPacket qp = new QuorumPacket();
-                ia.readRecord(qp, "packet");
+                while(loopRead){
+                    try {
+                        ia.readRecord(qp, "packet");
+                        loopRead = false;
+                    } catch (SocketTimeoutException e) {
+                        //No processing required
+                    }
+                }
                 messageTracker.trackReceived(qp.getType());
                 LOG.info("The ChildHandler receives a message from the child, type: {}",qp.getType());
                 if(qp.getType() == Leader.ACK){
