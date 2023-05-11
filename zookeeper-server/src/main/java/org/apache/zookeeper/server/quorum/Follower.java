@@ -89,21 +89,23 @@ public class Follower extends Learner implements ChildMaster{
         this.self = Objects.requireNonNull(self);
         this.fzk = Objects.requireNonNull(zk);
 
-        Set<InetSocketAddress> addresses;
-        if (self.getQuorumListenOnAllIPs()) {
-            addresses = self.getTreeAddress().getWildcardAddresses();
-        } else {
-            addresses = self.getTreeAddress().getAllAddresses();
-        }
+        if (self.getIsTreeCnxEnabled()) {
+            Set<InetSocketAddress> addresses;
+            if (self.getQuorumListenOnAllIPs()) {
+                addresses = self.getTreeAddress().getWildcardAddresses();
+            } else {
+                addresses = self.getTreeAddress().getAllAddresses();
+            }
 
-        addresses.stream()
-                .map(address -> createServerSocket(address, self.shouldUsePortUnification(), self.isSslQuorum()))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .forEach(serverSockets::add);
+            addresses.stream()
+                    .map(address -> createServerSocket(address, self.shouldUsePortUnification(), self.isSslQuorum()))
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .forEach(serverSockets::add);
 
-        if (serverSockets.isEmpty()) {
-            throw new IOException("Follower failed to initialize any of the sockets: " + addresses);
+            if (serverSockets.isEmpty()) {
+                throw new IOException("Follower failed to initialize any of the sockets: " + addresses);
+            }
         }
 
         this.zk = zk;

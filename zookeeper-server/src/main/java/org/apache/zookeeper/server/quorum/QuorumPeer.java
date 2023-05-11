@@ -363,7 +363,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     throw new ConfigException("Address unresolved: " + serverHostName + ":" + serverParts[2]);
                 }
                 try{
-                    if((!serverParts[3].equals("participant")) && (!serverParts[3].equals("observer"))){
+                    if((serverParts.length > 3) && (!serverParts[3].equals("participant")) && (!serverParts[3].equals("observer"))){
                         tempTreeAddress = new InetSocketAddress(serverHostName, Integer.parseInt(serverParts[3]));
                         treeAddr.addAddress(tempTreeAddress);
                     }
