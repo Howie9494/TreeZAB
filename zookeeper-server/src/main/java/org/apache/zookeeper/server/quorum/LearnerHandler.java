@@ -693,7 +693,18 @@ public class LearnerHandler extends ZooKeeperThread {
                         LOG.debug("Received ACK from Observer {}", this.sid);
                     }
                     syncLimitCheck.updateAck(qp.getZxid());
-                    learnerMaster.processAck(this.sid, qp.getZxid(), sock.getLocalSocketAddress());
+                    if(qp.getData() == null){
+                        learnerMaster.processAck(this.sid, qp.getZxid(), sock.getLocalSocketAddress());
+                    }else{
+                        byte[] data = qp.getData();
+                        int size = data.length >> 3;
+                        long[] sidList = new long[size];
+                        ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
+                        for(int i = 0;i < size;i++){
+                            sidList[i] = wrap.getLong(i << 3);
+                        }
+                        learnerMaster.processAck(sidList, qp.getZxid(), sock.getLocalSocketAddress());
+                    }
                     break;
                 case Leader.PING:
                     // Process the touches

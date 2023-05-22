@@ -205,12 +205,20 @@ public abstract class LearnerMaster {
     abstract long getAndDecrementFollowerCounter();
 
     /**
-     * handle ack packet
+     * handle tree ack packet
      * @param sid leader id
      * @param zxid packet zxid
      * @param localSocketAddress forwarder's address
      */
     abstract void processAck(long sid, long zxid, SocketAddress localSocketAddress);
+
+    /**
+     * handle ack packet
+     * @param sids leader ids
+     * @param zxid packet zxid
+     * @param localSocketAddress forwarder's address
+     */
+    abstract void processAck(long[] sids, long zxid, SocketAddress localSocketAddress);
 
     /**
      * mark session as alive

@@ -239,6 +239,20 @@ public class ObserverMaster extends LearnerMaster implements Runnable {
     }
 
     @Override
+    void processAck(long[] sids, long zxid, SocketAddress localSocketAddress) {
+        if ((zxid & 0xffffffffL) == 0) {
+            /*
+             * We no longer process NEWLEADER ack by this method. However,
+             * the learner sends ack back to the leader after it gets UPTODATE
+             * so we just ignore the message.
+             */
+            return;
+        }
+
+        throw new RuntimeException("Observers shouldn't send ACKS ack = " + Long.toHexString(zxid));
+    }
+
+    @Override
     public void touch(long sess, int to) {
         zks.getSessionTracker().touchSession(sess, to);
     }

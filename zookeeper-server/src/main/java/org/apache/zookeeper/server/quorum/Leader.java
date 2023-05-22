@@ -1176,6 +1176,79 @@ public class Leader extends LearnerMaster {
         }
     }
 
+    @Override
+    void processAck(long[] sids, long zxid, SocketAddress followerAddr) {
+        if (!allowedToCommit) {
+            return; // last op committed was a leader change - from now on
+        }
+        // the new leader should commit
+        if (LOG.isTraceEnabled()) {
+            LOG.trace("Ack zxid: 0x{}", Long.toHexString(zxid));
+            for (Proposal p : outstandingProposals.values()) {
+                long packetZxid = p.packet.getZxid();
+                LOG.trace("outstanding proposal: 0x{}", Long.toHexString(packetZxid));
+            }
+            LOG.trace("outstanding proposals all");
+        }
+
+        if ((zxid & 0xffffffffL) == 0) {
+            /*
+             * We no longer process NEWLEADER ack with this method. However,
+             * the learner sends an ack back to the leader after it gets
+             * UPTODATE, so we just ignore the message.
+             */
+            return;
+        }
+
+        if (outstandingProposals.size() == 0) {
+            LOG.debug("outstanding is 0");
+            return;
+        }
+        if (lastCommitted >= zxid) {
+            LOG.debug(
+                    "proposal has already been committed, pzxid: 0x{} zxid: 0x{}",
+                    Long.toHexString(lastCommitted),
+                    Long.toHexString(zxid));
+            // The proposal has already been committed
+            return;
+        }
+        Proposal p = outstandingProposals.get(zxid);
+        if (p == null) {
+            LOG.warn("Trying to commit future proposal: zxid 0x{} from {}", Long.toHexString(zxid), followerAddr);
+            return;
+        }
+
+        for(long sid : sids){
+            if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
+                p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(sid));
+            }
+
+            p.addAck(sid);
+        }
+
+        boolean hasCommitted = tryToCommit(p, zxid, followerAddr);
+
+        // If p is a reconfiguration, multiple other operations may be ready to be committed,
+        // since operations wait for different sets of acks.
+        // Currently we only permit one outstanding reconfiguration at a time
+        // such that the reconfiguration and subsequent outstanding ops proposed while the reconfig is
+        // pending all wait for a quorum of old and new config, so its not possible to get enough acks
+        // for an operation without getting enough acks for preceding ops. But in the future if multiple
+        // concurrent reconfigs are allowed, this can happen and then we need to check whether some pending
+        // ops may already have enough acks and can be committed, which is what this code does.
+
+        if (hasCommitted && p.request != null && p.request.getHdr().getType() == OpCode.reconfig) {
+            long curZxid = zxid;
+            while (allowedToCommit && hasCommitted && p != null) {
+                curZxid++;
+                p = outstandingProposals.get(curZxid);
+                if (p != null) {
+                    hasCommitted = tryToCommit(p, curZxid, null);
+                }
+            }
+        }
+    }
+
     static class ToBeAppliedRequestProcessor implements RequestProcessor {
 
         private final RequestProcessor next;
