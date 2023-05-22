@@ -10,19 +10,19 @@ ZAB cluster performance optimization based on tree.
 ```
 isTreeCnxEnabled=false
 ```
-1. 相比于原结构可用性有所降低，当集群节点=5时最坏的情况为2个节点宕机，则集群无法正常运行，开始进行recovery；而原结构在两个节点的宕机的情况下仍能正常运行（超过半数）。
+1. 相比于原结构可用性有所降低。当集群节点=5时最坏的情况为2个节点宕机，则集群无法正常运行，开始进行recovery；而原结构在两个节点的宕机的情况下仍能正常运行（超过半数）。当集群节点增加时，在最坏的情况下导致集群无法正常工作仍然只需要2个节点。
 
-2. 当集群节点增加时，在最坏的情况下导致集群无法正常工作仍然只需要2个节点。
+2. 相比于原结构在写请求量增加后性能有所提升，更稳定，更晚出现因节点故障导致的Recovery。Zookeeper在写操作的过程中Leader承受大量负担，而Follower大多数时间处于等待状态。leader会因为负担过多而崩溃，导致重新进行leader选举，集群无法正常工作。当使用树结构优化原本的Zookeeper结构，让Follower分担部分Leader的负载，尽管会导造成短暂的性能下降，但当写请求增加时优化后的性能更稳定且更晚出现节点故障的问题。
 
-3. 某种程度上更容易导致Recovery的发生，而Recovery耗时长。在集群正常运行的情况下树结构将Leader的压力分解给Follower，当事务请求量大时使吞吐量可以提升，但需要更加注意避免Recovery的发生。
+3. 相比于原结构受网络影响更为严重。优化后的TreeZAB结构因为需要进行消息的二次转发和多次ACK等待，所以仅能在Tree-FriendLy-NetWork中保持和原结构一样的性能，而在Tree-Unfriendly-NetWork中由于网络原因性能下降的现象更严重。
 
 ### Intro
 Tree based transaction commit can be set to be on or off via zoo.cfg (it is on by default).
 ```
 isTreeCnxEnabled=false
 ```
-1. Compared to the original structure the availability is reduced, when the cluster node = 5 the worst case scenario is that 2 nodes are down, then the cluster cannot run normally and recovery begins; whereas the original structure can still run normally (more than half) in the case of two nodes being down.
+1. compared to the original structure availability has been reduced。 when the cluster node = 5 the worst case is 2 nodes down, then the cluster can not work properly, and start recovery; while the original structure in the case of two nodes down can still work properly (more than half). When the cluster nodes are added, in the worst case scenario resulting in the cluster not working properly still only 2 nodes are needed.
 
-2. When the cluster nodes are added, in the worst case scenario resulting in the cluster not working properly still only 2 nodes are needed.
+2. The Zookeeper leader is heavily burdened during writing operations, while the Follower spends most of its time in a waiting state. The cluster does not work properly. When the original Zookeeper structure is optimised using the tree structure, the Follower shares some of the Leader's load, which causes a temporary performance degradation, but the optimised performance is more stable and less prone to node failure when the number of write requests increases.
 
-3. It is somewhat more likely to lead to Recovery, which is time-consuming. The tree structure breaks down the pressure from the Leader to the Follower in the normal operation of the cluster, allowing throughput to increase when there is a high volume of transaction requests, but more attention needs to be paid to avoiding Recovery.
+3. more severely impacted by the network than the original structure. The optimised TreeZAB structure only maintains the same performance as the original structure in Tree-FriendLy-NetWork due to the need for secondary forwarding of messages and multiple ACK waits, while in Tree-Unfriendly-NetWork the performance degradation is more severe due to the network.
