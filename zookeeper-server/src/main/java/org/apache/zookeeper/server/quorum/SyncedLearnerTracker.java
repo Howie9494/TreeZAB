@@ -59,6 +59,16 @@ public class SyncedLearnerTracker {
         return true;
     }
 
+    public boolean treeCommitCheck(int ackNum){
+        for (QuorumVerifierAcksetPair qvAckset : qvAcksetPairs) {
+            qvAckset.setAckNum(ackNum);
+            if (qvAckset.getAckNum() <= (qvAckset.getQuorumVerifier().getVotingMembers().size() >> 1)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public String ackSetsToString() {
         StringBuilder sb = new StringBuilder();
 
@@ -73,10 +83,12 @@ public class SyncedLearnerTracker {
 
         private final QuorumVerifier qv;
         private final HashSet<Long> ackset;
+        private int ackNum;
 
         public QuorumVerifierAcksetPair(QuorumVerifier qv, HashSet<Long> ackset) {
             this.qv = qv;
             this.ackset = ackset;
+            ackNum = 1;
         }
 
         public QuorumVerifier getQuorumVerifier() {
@@ -87,6 +99,13 @@ public class SyncedLearnerTracker {
             return this.ackset;
         }
 
+        public void setAckNum(int ackNum) {
+            this.ackNum += ackNum;
+        }
+
+        public int getAckNum() {
+            return ackNum;
+        }
     }
 
 }

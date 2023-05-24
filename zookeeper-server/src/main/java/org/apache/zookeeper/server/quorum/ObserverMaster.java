@@ -225,21 +225,7 @@ public class ObserverMaster extends LearnerMaster implements Runnable {
     }
 
     @Override
-    public void processAck(long sid, long zxid, SocketAddress localSocketAddress) {
-        if ((zxid & 0xffffffffL) == 0) {
-            /*
-             * We no longer process NEWLEADER ack by this method. However,
-             * the learner sends ack back to the leader after it gets UPTODATE
-             * so we just ignore the message.
-             */
-            return;
-        }
-
-        throw new RuntimeException("Observers shouldn't send ACKS ack = " + Long.toHexString(zxid));
-    }
-
-    @Override
-    void processAck(long[] sids, long zxid, SocketAddress localSocketAddress) {
+    void processAck(long sids,int ackNum, long zxid, SocketAddress localSocketAddress) {
         if ((zxid & 0xffffffffL) == 0) {
             /*
              * We no longer process NEWLEADER ack by this method. However,

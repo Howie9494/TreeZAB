@@ -1098,86 +1098,91 @@ public class Leader extends LearnerMaster {
     }
 
     /**
+     * @return True if committed, otherwise false.
+     **/
+    public synchronized boolean tryToCommit(Proposal p,long sid,int ackNum, long zxid, SocketAddress followerAddr) {
+        // make sure that ops are committed in order. With reconfigurations it is now possible
+        // that different operations wait for different sets of acks, and we still want to enforce
+        // that they are committed in order. Currently we only permit one outstanding reconfiguration
+        // such that the reconfiguration and subsequent outstanding ops proposed while the reconfig is
+        // pending all wait for a quorum of old and new config, so it's not possible to get enough acks
+        // for an operation without getting enough acks for preceding ops. But in the future if multiple
+        // concurrent reconfigs are allowed, this can happen.
+        if (outstandingProposals.containsKey(zxid - 1)) {
+            return false;
+        }
+
+        if (!p.treeCommitCheck(ackNum)) {
+            return false;
+        }
+
+        // commit proposals in order
+        if (zxid != lastCommitted + 1) {
+            LOG.warn(
+                    "Commiting zxid 0x{} from {} noy first!",
+                    Long.toHexString(zxid),
+                    followerAddr);
+            LOG.warn("First is {}", (lastCommitted + 1));
+        }
+
+        outstandingProposals.remove(zxid);
+
+        if (p.request != null) {
+            toBeApplied.add(p);
+        }
+
+        if (p.request == null) {
+            LOG.warn("Going to commit null: {}", p);
+        } else if (p.request.getHdr().getType() == OpCode.reconfig) {
+            LOG.debug("Committing a reconfiguration! {}", outstandingProposals.size());
+
+            //if this server is voter in new config with the same quorum address,
+            //then it will remain the leader
+            //otherwise an up-to-date follower will be designated as leader. This saves
+            //leader election time, unless the designated leader fails
+            Long designatedLeader = getDesignatedLeader(p, zxid);
+
+            QuorumVerifier newQV = p.qvAcksetPairs.get(p.qvAcksetPairs.size() - 1).getQuorumVerifier();
+
+            self.processReconfig(newQV, designatedLeader, zk.getZxid(), true);
+
+            if (designatedLeader != self.getId()) {
+                LOG.info(String.format("Committing a reconfiguration (reconfigEnabled=%s); this leader is not the designated "
+                        + "leader anymore, setting allowedToCommit=false", self.isReconfigEnabled()));
+                allowedToCommit = false;
+            }
+
+            // we're sending the designated leader, and if the leader is changing the followers are
+            // responsible for closing the connection - this way we are sure that at least a majority of them
+            // receive the commit message.
+            commitAndActivate(zxid, designatedLeader);
+            informAndActivate(p, designatedLeader);
+        } else {
+            p.request.logLatency(ServerMetrics.getMetrics().QUORUM_ACK_LATENCY);
+            commit(zxid);
+            inform(p);
+        }
+        zk.commitProcessor.commit(p.request);
+        if (pendingSyncs.containsKey(zxid)) {
+            for (LearnerSyncRequest r : pendingSyncs.remove(zxid)) {
+                sendSync(r);
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Keep a count of acks that are received by the leader for a particular
      * proposal
      *
      * @param sid is the id of the server that sent the ack
+     * @param ackNum is the number of ack received
      * @param zxid is the zxid of the proposal sent out
      * @param followerAddr
      */
     @Override
-    public synchronized void processAck(long sid, long zxid, SocketAddress followerAddr) {
-        if (!allowedToCommit) {
-            return; // last op committed was a leader change - from now on
-        }
-        // the new leader should commit
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("Ack zxid: 0x{}", Long.toHexString(zxid));
-            for (Proposal p : outstandingProposals.values()) {
-                long packetZxid = p.packet.getZxid();
-                LOG.trace("outstanding proposal: 0x{}", Long.toHexString(packetZxid));
-            }
-            LOG.trace("outstanding proposals all");
-        }
-
-        if ((zxid & 0xffffffffL) == 0) {
-            /*
-             * We no longer process NEWLEADER ack with this method. However,
-             * the learner sends an ack back to the leader after it gets
-             * UPTODATE, so we just ignore the message.
-             */
-            return;
-        }
-
-        if (outstandingProposals.size() == 0) {
-            LOG.debug("outstanding is 0");
-            return;
-        }
-        if (lastCommitted >= zxid) {
-            LOG.debug(
-                "proposal has already been committed, pzxid: 0x{} zxid: 0x{}",
-                Long.toHexString(lastCommitted),
-                Long.toHexString(zxid));
-            // The proposal has already been committed
-            return;
-        }
-        Proposal p = outstandingProposals.get(zxid);
-        if (p == null) {
-            LOG.warn("Trying to commit future proposal: zxid 0x{} from {}", Long.toHexString(zxid), followerAddr);
-            return;
-        }
-
-        if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
-            p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(sid));
-        }
-
-        p.addAck(sid);
-
-        boolean hasCommitted = tryToCommit(p, zxid, followerAddr);
-
-        // If p is a reconfiguration, multiple other operations may be ready to be committed,
-        // since operations wait for different sets of acks.
-        // Currently we only permit one outstanding reconfiguration at a time
-        // such that the reconfiguration and subsequent outstanding ops proposed while the reconfig is
-        // pending all wait for a quorum of old and new config, so its not possible to get enough acks
-        // for an operation without getting enough acks for preceding ops. But in the future if multiple
-        // concurrent reconfigs are allowed, this can happen and then we need to check whether some pending
-        // ops may already have enough acks and can be committed, which is what this code does.
-
-        if (hasCommitted && p.request != null && p.request.getHdr().getType() == OpCode.reconfig) {
-            long curZxid = zxid;
-            while (allowedToCommit && hasCommitted && p != null) {
-                curZxid++;
-                p = outstandingProposals.get(curZxid);
-                if (p != null) {
-                    hasCommitted = tryToCommit(p, curZxid, null);
-                }
-            }
-        }
-    }
-
-    @Override
-    void processAck(long[] sids, long zxid, SocketAddress followerAddr) {
+    public synchronized void processAck(long sid,int ackNum, long zxid, SocketAddress followerAddr) {
         if (!allowedToCommit) {
             return; // last op committed was a leader change - from now on
         }
@@ -1218,15 +1223,18 @@ public class Leader extends LearnerMaster {
             return;
         }
 
-        for(long sid : sids){
-            if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
-                p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(sid));
-            }
-
-            p.addAck(sid);
+        if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
+            p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(sid));
         }
 
-        boolean hasCommitted = tryToCommit(p, zxid, followerAddr);
+        p.addAck(sid);
+
+        boolean hasCommitted;
+        if(self.getIsTreeCnxEnabled()){
+            hasCommitted = tryToCommit(p,sid,ackNum,zxid,followerAddr);
+        }else{
+            hasCommitted = tryToCommit(p, zxid, followerAddr);
+        }
 
         // If p is a reconfiguration, multiple other operations may be ready to be committed,
         // since operations wait for different sets of acks.

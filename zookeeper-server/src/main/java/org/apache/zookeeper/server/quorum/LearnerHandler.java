@@ -694,16 +694,9 @@ public class LearnerHandler extends ZooKeeperThread {
                     }
                     syncLimitCheck.updateAck(qp.getZxid());
                     if(qp.getData() == null){
-                        learnerMaster.processAck(this.sid, qp.getZxid(), sock.getLocalSocketAddress());
+                        learnerMaster.processAck(this.sid,1, qp.getZxid(), sock.getLocalSocketAddress());
                     }else{
-                        byte[] data = qp.getData();
-                        int size = data.length >> 3;
-                        long[] sidList = new long[size];
-                        ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
-                        for(int i = 0;i < size;i++){
-                            sidList[i] = wrap.getLong(i << 3);
-                        }
-                        learnerMaster.processAck(sidList, qp.getZxid(), sock.getLocalSocketAddress());
+                        learnerMaster.processAck(this.sid,qp.getData().length >> 3, qp.getZxid(), sock.getLocalSocketAddress());
                     }
                     break;
                 case Leader.PING:
