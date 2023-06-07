@@ -114,8 +114,9 @@ public abstract class LearnerMaster {
     /**
      * Add learnerhandler to TreeCnx as a node get number of child node
      * @param learnerHandler add as a node of TreeCnx
+     * @param cnxInfo Connection information after ByteBuffer wrapping
      */
-    abstract int addCnxTreeNode(LearnerHandler learnerHandler);
+    abstract boolean addCnxTreeNode(LearnerHandler learnerHandler,byte[] cnxInfo);
 
     /**
      * start tracking a learner handler

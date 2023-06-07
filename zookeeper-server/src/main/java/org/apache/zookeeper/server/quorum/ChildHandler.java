@@ -117,6 +117,7 @@ public class ChildHandler extends ZooKeeperThread {
                     for(int i = 0;i < qp.getData().length;i += 8){
                         childMaster.setTreeAckMap(zxid,wrap.getLong(i));
                     }
+                    childMaster.tryToFollowerCommit(zxid,qp.getData().length >> 3);
                 }else{
                     LOG.warn("unexpected quorum packet, type: {}", packetToString(qp));
                     break;

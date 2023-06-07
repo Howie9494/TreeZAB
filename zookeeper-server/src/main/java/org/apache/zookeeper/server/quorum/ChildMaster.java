@@ -5,6 +5,13 @@ import java.util.ArrayList;
 
 public interface ChildMaster {
 
+    /** When follower determines that more than half the number of nodes have received a propose message, it can commit
+     * registers the handler's bean
+     * @param zxid transaction zxid
+     * @param ackNum the num of ack
+     */
+    abstract void tryToFollowerCommit(Long zxid,int ackNum);
+
     /**
      * registers the handler's bean
      * @param childHandler handler

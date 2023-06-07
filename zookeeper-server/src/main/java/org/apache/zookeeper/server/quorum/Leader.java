@@ -792,6 +792,7 @@ public class Leader extends LearnerMaster {
     private Long[] quorumPeerCnxTreeList;
     private int[] childNumBound;
     private int nodeNum;
+    private int level;
 
     /**
      * Calculate the initial length of the quorumPeerCnxTreeList
@@ -828,10 +829,9 @@ public class Leader extends LearnerMaster {
     }
 
     @Override
-    public int addCnxTreeNode(LearnerHandler handler){
+    public boolean addCnxTreeNode(LearnerHandler handler,byte[] cnxInfo){
         //When cluster follower nodes are greater than INITIAL_TREE_FORK,Constructing follower connections as a Tree
         //Store with QuorumPeerCnxTreeMap
-        int childNum = -1;
         if(self.getIsTreeCnxEnabled()){
             //Initialised when nodes are first added
             if(getQuorumPeerCnxTreeParentMapSize() == 0){
@@ -841,7 +841,7 @@ public class Leader extends LearnerMaster {
                 quorumPeerCnxTreeList[0] = self.getId();
                 childNumBound = getChildNumBound();
             }
-
+            int childNum;
             if(self.getView().size() <= 3){
                 int addNo = buildSpecialCnxTree(handler);
                 if(self.getView().size() == 2) childNum = addNo == 1 ? 1 : 0;
@@ -852,11 +852,13 @@ public class Leader extends LearnerMaster {
                 else if(addNo <= childNumBound[1]) childNum = 1;
                 else childNum = 0;
             }
+            ByteBuffer.wrap(cnxInfo).putInt(8,childNum);
+            ByteBuffer.wrap(cnxInfo).putInt(12,level);
             LOG.info("Complete the construction of the follower structure as a Tree," +
-                    "{}'s parent node is {},the number of child node is {}",handler.getSid(),getParentPeerInTree(handler.getSid()),childNum);
-            return childNum;
+                    "{}'s parent node is {},the number of child node is {},level is {}",handler.getSid(),getParentPeerInTree(handler.getSid()),childNum,level);
+            return true;
         }
-        return childNum;
+        return false;
     }
 
     /**
@@ -874,11 +876,13 @@ public class Leader extends LearnerMaster {
                 childPeer.add(handler);
                 quorumPeerCnxTreeList[addNo - 1] = handler.getSid();
                 setQuorumPeerCnxTreeParentMap(handler.getSid(),myid);
+                level = 1;
                 return addNo;
             }
             Long curSid = handler.getSid();
             quorumPeerCnxTreeList[addNo - 1] = curSid;
             setQuorumPeerCnxTreeParentMap(curSid,quorumPeerCnxTreeList[1]);
+            level = 2;
             return addNo;
         } finally {
             lock.unlock();
@@ -897,13 +901,16 @@ public class Leader extends LearnerMaster {
             int addNo = treeNodeNum + 1;
             if(addNo == nodeNum * 4){
                 nodeNum *= 2;
+                level++;
             }
             if(addNo <= INITIAL_TREE_FORK + 1){
                 childPeer.add(handler);
                 quorumPeerCnxTreeList[addNo - 1] = handler.getSid();
                 setQuorumPeerCnxTreeParentMap(handler.getSid(),myid);
+                level = 2;
                 return addNo;
             }
+            level = addNo < 8 ? 3 : level;
             Long curSid = handler.getSid();
             int parentIndex = nodeNum + addNo % nodeNum - 1;
             Long parentSid = quorumPeerCnxTreeList[parentIndex];
@@ -1084,7 +1091,7 @@ public class Leader extends LearnerMaster {
             informAndActivate(p, designatedLeader);
         } else {
             p.request.logLatency(ServerMetrics.getMetrics().QUORUM_ACK_LATENCY);
-            commit(zxid);
+            commit(zxid,0,0);
             inform(p);
         }
         zk.commitProcessor.commit(p.request);
@@ -1159,7 +1166,7 @@ public class Leader extends LearnerMaster {
             informAndActivate(p, designatedLeader);
         } else {
             p.request.logLatency(ServerMetrics.getMetrics().QUORUM_ACK_LATENCY);
-            commit(zxid);
+            commit(zxid,sid,ackNum);
             inform(p);
         }
         zk.commitProcessor.commit(p.request);
@@ -1339,13 +1346,28 @@ public class Leader extends LearnerMaster {
     /**
      * send a packet to the childPeer ready to follow
      *
-     * @param qp
-     *                the packet to be sent
+     * @param qp the packet to be sent
      */
     void sendPacketToChildPeer(QuorumPacket qp) {
         synchronized (childPeer) {
             for (LearnerHandler f : childPeer) {
                 f.queuePacket(qp);
+            }
+        }
+    }
+
+    /**
+     * Send a packet to a child peer that has not committed
+     *
+     * @param qp the packet to be sent
+     * @param sid Receive the id of the ack corresponding to follower
+     */
+    void sendPacketToOtherChildPeer(QuorumPacket qp,long sid) {
+        synchronized (childPeer) {
+            for (LearnerHandler f : childPeer) {
+                if(f.getSid() != sid) {
+                    f.queuePacket(qp);
+                }
             }
         }
     }
@@ -1366,14 +1388,19 @@ public class Leader extends LearnerMaster {
      *
      * @param zxid
      */
-    public void commit(long zxid) {
+    public void commit(long zxid,long sid,int ackNum) {
         synchronized (this) {
             lastCommitted = zxid;
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
         if(self.getIsTreeCnxEnabled()){
-            LOG.debug("Send commit packet to childPeer only");
-            sendPacketToChildPeer(qp);
+            if(ackNum + 1 > self.getView().size() >> 1){
+                LOG.info("Send commit packet to other childPeer");
+                sendPacketToOtherChildPeer(qp,sid);
+            }else{
+                LOG.info("Send commit packet to all childPeer");
+                sendPacketToChildPeer(qp);
+            }
         }else{
             sendPacket(qp);
         }
