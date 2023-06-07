@@ -1395,10 +1395,10 @@ public class Leader extends LearnerMaster {
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
         if(self.getIsTreeCnxEnabled()){
             if(ackNum + 1 > self.getView().size() >> 1){
-                LOG.info("Send commit packet to other childPeer");
+                LOG.debug("Send commit packet to other childPeer");
                 sendPacketToOtherChildPeer(qp,sid);
             }else{
-                LOG.info("Send commit packet to all childPeer");
+                LOG.debug("Send commit packet to all childPeer");
                 sendPacketToChildPeer(qp);
             }
         }else{
@@ -1513,7 +1513,7 @@ public class Leader extends LearnerMaster {
             lastProposed = p.packet.getZxid();
             outstandingProposals.put(lastProposed, p);
             if(self.getIsTreeCnxEnabled()){
-                LOG.info("Send propose packet to childPeer only");
+                LOG.debug("Send propose packet to childPeer only");
                 sendPacketToChildPeer(pp);
             }else{
                 sendPacket(pp);

@@ -110,7 +110,7 @@ public class ChildHandler extends ZooKeeperThread {
                     }
                 }
                 messageTracker.trackReceived(qp.getType());
-                LOG.info("The ChildHandler receives a message from the child, type: {}",qp.getType());
+                LOG.debug("The ChildHandler receives a message from the child, type: {}",qp.getType());
                 if(qp.getType() == Leader.ACK){
                     ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
                     Long zxid = qp.getZxid();
@@ -177,7 +177,7 @@ public class ChildHandler extends ZooKeeperThread {
                     // Packet of death!
                     break;
                 }
-                LOG.info("ChildHandler sends a message to child.");
+                LOG.debug("ChildHandler sends a message to child.");
                 oa.writeRecord(p, "packet");
                 messageTracker.trackSent(p.getType());
             }catch (IOException e) {

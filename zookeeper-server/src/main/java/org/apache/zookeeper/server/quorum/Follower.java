@@ -170,7 +170,7 @@ public class Follower extends Learner implements ChildMaster{
                         Long parentSid = ByteBuffer.wrap(qp.getData()).getLong(0);
                         childNum = ByteBuffer.wrap(qp.getData()).getInt(8);
                         level = ByteBuffer.wrap(qp.getData()).getInt(12);
-                        LOG.debug("The parent sid of the CnxTree received for connection is {},The number of child nodes is {},level is {}",parentSid,childNum,level);
+                        LOG.info("The parent sid of the CnxTree received for connection is {},The number of child nodes is {},level is {}",parentSid,childNum,level);
                         // Start thread that waits for connection requests from
                         // new followers.
                         if(childNum != 0){
@@ -297,7 +297,7 @@ public class Follower extends Learner implements ChildMaster{
     public void tryToFollowerCommit(Long zxid,int ackNum) {
         int receivedNum = level + ackNum;
         if(receivedNum > self.getView().size() >> 1){
-            LOG.info("More than half of the nodes have received the proposal message, follower commit zxid {}",zxid);
+            LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",zxid);
             fzk.forwardAndCommit(zxid);
         }
     }

@@ -61,7 +61,7 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
 
                 byte[] data = new byte[(childNum + 1) << 3];
                 if(childNum == 0){
-                    LOG.info("No child, direct reply ack.");
+                    LOG.debug("No child, direct reply ack.");
                     follower.sendAck(data,zxid);
                 }else{
                     ArrayList<Long> sidList = follower.getTreeAckMap(zxid);
@@ -79,7 +79,7 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
                         buffer.putLong(index,sid);
                         index += 8;
                     }
-                    LOG.info("Receive ack messages from all children, send ack to parent");
+                    LOG.debug("Receive ack messages from all children, send ack to parent");
                     follower.removeTreeAckMap(zxid);
                     follower.sendAck(data,zxid);
                 }
