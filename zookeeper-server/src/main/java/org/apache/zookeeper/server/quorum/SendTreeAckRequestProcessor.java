@@ -119,7 +119,7 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
         wakeup();
     }
 
-    public void flush() throws IOException {
+    public void flush(){
         try {
             if(parentIsLeader){
                 learner.writePacket(null, true);
