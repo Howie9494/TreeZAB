@@ -289,7 +289,7 @@ public class Learner {
                 }
             }
             messageTracker.trackReceived(pp.getType());
-            LOG.info("Received a message from parent, type : {}",pp.getType());
+            LOG.debug("Received a message from parent, type : {}",pp.getType());
         }
         if (LOG.isTraceEnabled()) {
             final long traceMask =
