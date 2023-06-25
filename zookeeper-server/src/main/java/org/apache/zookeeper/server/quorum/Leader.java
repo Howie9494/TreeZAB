@@ -830,35 +830,37 @@ public class Leader extends LearnerMaster {
 
     @Override
     public boolean addCnxTreeNode(LearnerHandler handler,byte[] cnxInfo){
-        //When cluster follower nodes are greater than INITIAL_TREE_FORK,Constructing follower connections as a Tree
-        //Store with QuorumPeerCnxTreeMap
-        if(self.getIsTreeCnxEnabled()){
-            //Initialised when nodes are first added
-            if(getQuorumPeerCnxTreeParentMapSize() == 0){
-                childPeer = new ArrayList<>(INITIAL_TREE_FORK);
-                quorumPeerCnxTreeList = new Long[calLength(self.getView().size())];
-                nodeNum = INITIAL_TREE_FORK;
-                quorumPeerCnxTreeList[0] = self.getId();
-                childNumBound = getChildNumBound();
+        synchronized (this){
+            //When cluster follower nodes are greater than INITIAL_TREE_FORK,Constructing follower connections as a Tree
+            //Store with QuorumPeerCnxTreeMap
+            if(self.getIsTreeCnxEnabled()){
+                //Initialised when nodes are first added
+                if(getQuorumPeerCnxTreeParentMapSize() == 0){
+                    childPeer = new ArrayList<>(INITIAL_TREE_FORK);
+                    quorumPeerCnxTreeList = new Long[calLength(self.getView().size())];
+                    nodeNum = INITIAL_TREE_FORK;
+                    quorumPeerCnxTreeList[0] = self.getId();
+                    childNumBound = getChildNumBound();
+                }
+                int childNum;
+                if(self.getView().size() <= 3){
+                    int addNo = buildSpecialCnxTree(handler);
+                    if(self.getView().size() == 2) childNum = addNo == 1 ? 1 : 0;
+                    else childNum = addNo == 2 ? 0 : 1;
+                }else{
+                    int addNo = buildCnxTree(handler);
+                    if (addNo <= childNumBound[0]) childNum = 2;
+                    else if(addNo <= childNumBound[1]) childNum = 1;
+                    else childNum = 0;
+                }
+                ByteBuffer.wrap(cnxInfo).putInt(8,childNum);
+                ByteBuffer.wrap(cnxInfo).putInt(12,level);
+                LOG.info("Complete the construction of the follower structure as a Tree," +
+                        "{}'s parent node is {},the number of child node is {},level is {}",handler.getSid(),getParentPeerInTree(handler.getSid()),childNum,level);
+                return true;
             }
-            int childNum;
-            if(self.getView().size() <= 3){
-                int addNo = buildSpecialCnxTree(handler);
-                if(self.getView().size() == 2) childNum = addNo == 1 ? 1 : 0;
-                else childNum = addNo == 2 ? 0 : 1;
-            }else{
-                int addNo = buildCnxTree(handler);
-                if (addNo <= childNumBound[0]) childNum = 2;
-                else if(addNo <= childNumBound[1]) childNum = 1;
-                else childNum = 0;
-            }
-            ByteBuffer.wrap(cnxInfo).putInt(8,childNum);
-            ByteBuffer.wrap(cnxInfo).putInt(12,level);
-            LOG.info("Complete the construction of the follower structure as a Tree," +
-                    "{}'s parent node is {},the number of child node is {},level is {}",handler.getSid(),getParentPeerInTree(handler.getSid()),childNum,level);
-            return true;
+            return false;
         }
-        return false;
     }
 
     /**
