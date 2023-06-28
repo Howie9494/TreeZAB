@@ -302,10 +302,11 @@ public class Follower extends Learner implements ChildMaster{
         }else{
             tryCommitMap.put(zxid,level + ackNum);
         }
-        if(tryCommitMap.get(zxid) > self.getView().size() >> 1){
-            LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",zxid);
-            fzk.forwardAndCommit(zxid);
-            tryCommitMap.remove(zxid);
+        long firstElementZxid = fzk.pendingTxns.element().zxid;
+        if(tryCommitMap.containsKey(firstElementZxid) && tryCommitMap.get(firstElementZxid) > self.getView().size() >> 1){
+            LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",firstElementZxid);
+            fzk.forwardAndCommit(firstElementZxid);
+            tryCommitMap.remove(firstElementZxid);
         }
     }
 

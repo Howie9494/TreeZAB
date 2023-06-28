@@ -1391,6 +1391,7 @@ public class Leader extends LearnerMaster {
      * @param zxid
      */
     public void commit(long zxid,long sid,int ackNum) {
+        LOG.debug("leader commit zxid :{}", Long.toHexString(zxid));
         synchronized (this) {
             lastCommitted = zxid;
         }
