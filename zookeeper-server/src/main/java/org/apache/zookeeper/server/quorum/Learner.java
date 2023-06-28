@@ -19,6 +19,7 @@
 package org.apache.zookeeper.server.quorum;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import java.io.EOFException;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
@@ -258,7 +259,16 @@ public class Learner {
      */
     void readPacket(QuorumPacket pp) throws IOException {
         synchronized (leaderIs) {
-            leaderIs.readRecord(pp, "packet");
+            boolean loopRead = true;
+            while(loopRead){
+                try {
+                    leaderIs.readRecord(pp, "packet");
+                    loopRead = false;
+                } catch (SocketTimeoutException | EOFException e) {
+                    //No processing required
+                }
+            }
+//            leaderIs.readRecord(pp, "packet");
             messageTracker.trackReceived(pp.getType());
         }
         if (LOG.isTraceEnabled()) {

@@ -80,9 +80,9 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
                         index += 8;
                     }
                     LOG.debug("Receive ack messages from all children, send ack to parent");
-                    follower.removeTreeAckMap(zxid);
                     follower.sendAck(data,zxid);
                 }
+                follower.removeTreeAckMap(zxid);
             }while(stoppedMainLoop);
         } catch (Exception e) {
             handleException(this.getName(), e);

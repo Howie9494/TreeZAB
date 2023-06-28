@@ -293,12 +293,19 @@ public class Follower extends Learner implements ChildMaster{
     // beans for all learners
     private final ConcurrentHashMap<ChildHandler, ChildHandlerBean> connectionBeans = new ConcurrentHashMap<>();
 
+    private final ConcurrentHashMap<Long,Integer> tryCommitMap = new ConcurrentHashMap<>();
+
     @Override
     public void tryToFollowerCommit(Long zxid,int ackNum) {
-        int receivedNum = level + ackNum;
-        if(receivedNum > self.getView().size() >> 1){
+        if(tryCommitMap.containsKey(zxid)){
+            tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
+        }else{
+            tryCommitMap.put(zxid,level + ackNum);
+        }
+        if(tryCommitMap.get(zxid) > self.getView().size() >> 1){
             LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",zxid);
             fzk.forwardAndCommit(zxid);
+            tryCommitMap.remove(zxid);
         }
     }
 
@@ -562,6 +569,7 @@ public class Follower extends Learner implements ChildMaster{
         case Leader.COMMIT:
             ServerMetrics.getMetrics().LEARNER_COMMIT_RECEIVED_COUNT.add(1);
             if(self.getIsTreeCnxEnabled()){
+                LOG.info("receive Commit msg , zxid :{}",Long.toHexString(qp.getZxid()));
                 fzk.forwardAndCommit(qp.getZxid());
             }else{
                 fzk.commit(qp.getZxid());
