@@ -117,7 +117,7 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         ackProcessor.ackListCheck();
     }
 
-    private static long lastCommitZxid;
+    long lastCommitZxid;
 
     /**
      * When a COMMIT message is received, eventually this method is called,

@@ -297,16 +297,28 @@ public class Follower extends Learner implements ChildMaster{
 
     @Override
     public void tryToFollowerCommit(Long zxid,int ackNum) {
+        if(zxid <= fzk.lastCommitZxid){
+            return;
+        }
+        if(ackNum == -1){
+            tryCommitMap.put(zxid,-1);
+        }
         if(tryCommitMap.containsKey(zxid)){
-            tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
+            Integer commitInfo = tryCommitMap.get(zxid);
+            if(commitInfo > 0){
+                tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
+            }
         }else{
             tryCommitMap.put(zxid,level + ackNum);
         }
-        long firstElementZxid = fzk.pendingTxns.element().zxid;
-        if(tryCommitMap.containsKey(firstElementZxid) && tryCommitMap.get(firstElementZxid) > self.getView().size() >> 1){
-            LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",firstElementZxid);
-            fzk.forwardAndCommit(firstElementZxid);
-            tryCommitMap.remove(firstElementZxid);
+        if(fzk.pendingTxns.size() > 0){
+            long firstElementZxid = fzk.pendingTxns.element().zxid;
+            if(tryCommitMap.containsKey(firstElementZxid) &&
+                    (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > self.getView().size() >> 1)){
+                LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",firstElementZxid);
+                fzk.forwardAndCommit(firstElementZxid);
+                tryCommitMap.remove(firstElementZxid);
+            }
         }
     }
 
@@ -570,8 +582,8 @@ public class Follower extends Learner implements ChildMaster{
         case Leader.COMMIT:
             ServerMetrics.getMetrics().LEARNER_COMMIT_RECEIVED_COUNT.add(1);
             if(self.getIsTreeCnxEnabled()){
-                LOG.info("receive Commit msg , zxid :{}",Long.toHexString(qp.getZxid()));
-                fzk.forwardAndCommit(qp.getZxid());
+                LOG.debug("receive Commit msg , zxid :{}",Long.toHexString(qp.getZxid()));
+                tryToFollowerCommit(qp.getZxid(),-1);
             }else{
                 fzk.commit(qp.getZxid());
             }
