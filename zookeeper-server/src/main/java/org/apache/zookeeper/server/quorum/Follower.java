@@ -82,7 +82,7 @@ public class Follower extends Learner implements ChildMaster{
     private int childNum;
     private int level;
 
-    private HashMap<Long,ArrayList<Long>> treeAckMap = new HashMap<Long,ArrayList<Long>>();
+    private ConcurrentHashMap<Long,ArrayList<Long>> treeAckMap = new ConcurrentHashMap<Long,ArrayList<Long>>();
 
     private final List<ServerSocket> serverSockets = new LinkedList<>();
 
@@ -295,13 +295,21 @@ public class Follower extends Learner implements ChildMaster{
 
     private final ConcurrentHashMap<Long,Integer> tryCommitMap = new ConcurrentHashMap<>();
 
+    private int commitNum = -1;
+
     @Override
     public void tryToFollowerCommit(Long zxid,int ackNum) {
+
+        if(commitNum == -1){
+            commitNum = self.getView().size() >> 1;
+        }
+
         if(zxid <= fzk.lastCommitZxid){
             return;
         }
+
         if(ackNum == -1){
-            tryCommitMap.put(zxid,-1);
+            tryCommitMap.put(zxid,ackNum);
         }
         if(tryCommitMap.containsKey(zxid)){
             Integer commitInfo = tryCommitMap.get(zxid);
@@ -311,13 +319,19 @@ public class Follower extends Learner implements ChildMaster{
         }else{
             tryCommitMap.put(zxid,level + ackNum);
         }
-        if(fzk.pendingTxns.size() > 0){
-            long firstElementZxid = fzk.pendingTxns.element().zxid;
-            if(tryCommitMap.containsKey(firstElementZxid) &&
-                    (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > self.getView().size() >> 1)){
-                LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",firstElementZxid);
-                fzk.forwardAndCommit(firstElementZxid);
-                tryCommitMap.remove(firstElementZxid);
+
+        if (fzk.pendingTxns.isEmpty()){
+            return;
+        }
+        synchronized (fzk){
+            if(fzk.pendingTxns.size() > 0){
+                long firstElementZxid = fzk.pendingTxns.element().zxid;
+                if(tryCommitMap.containsKey(firstElementZxid) &&
+                        (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > commitNum)){
+                    LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",firstElementZxid);
+                    fzk.forwardAndCommit(firstElementZxid);
+                    tryCommitMap.remove(firstElementZxid);
+                }
             }
         }
     }

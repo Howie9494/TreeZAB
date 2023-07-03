@@ -846,7 +846,7 @@ public class Leader extends LearnerMaster {
                 if(self.getView().size() <= 3){
                     int addNo = buildSpecialCnxTree(handler);
                     if(self.getView().size() == 2) childNum = addNo == 1 ? 1 : 0;
-                    else childNum = addNo == 2 ? 0 : 1;
+                    else childNum = addNo == 2 ? 1 : 0;
                 }else{
                     int addNo = buildCnxTree(handler);
                     if (addNo <= childNumBound[0]) childNum = 2;
