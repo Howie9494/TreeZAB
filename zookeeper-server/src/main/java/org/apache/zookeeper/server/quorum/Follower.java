@@ -299,7 +299,6 @@ public class Follower extends Learner implements ChildMaster{
 
     @Override
     public void tryToFollowerCommit(Long zxid,int ackNum) {
-
         if(commitNum == -1){
             commitNum = self.getView().size() >> 1;
         }
@@ -308,27 +307,27 @@ public class Follower extends Learner implements ChildMaster{
             return;
         }
 
-        if(ackNum == -1){
-            tryCommitMap.put(zxid,ackNum);
-        }
-        if(tryCommitMap.containsKey(zxid)){
-            Integer commitInfo = tryCommitMap.get(zxid);
-            if(commitInfo > 0){
-                tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
-            }
-        }else{
-            tryCommitMap.put(zxid,level + ackNum);
-        }
-
-        if (fzk.pendingTxns.isEmpty()){
-            return;
-        }
         synchronized (fzk){
+            if(ackNum == -1){
+                tryCommitMap.put(zxid,ackNum);
+            }
+            if(tryCommitMap.containsKey(zxid)){
+                Integer commitInfo = tryCommitMap.get(zxid);
+                if(commitInfo > 0){
+                    tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
+                }
+            }else{
+                tryCommitMap.put(zxid,level + ackNum);
+            }
+
+            if (fzk.pendingTxns.isEmpty()){
+                return;
+            }
             if(fzk.pendingTxns.size() > 0){
                 long firstElementZxid = fzk.pendingTxns.element().zxid;
                 if(tryCommitMap.containsKey(firstElementZxid) &&
                         (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > commitNum)){
-                    LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",firstElementZxid);
+                    LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
                     if(self.getView().size() == 3 && tryCommitMap.get(firstElementZxid) == level && ackNum == 0){
                         setTreeAckMap(firstElementZxid,-1L);
                     }
@@ -405,15 +404,11 @@ public class Follower extends Learner implements ChildMaster{
         }
         QuorumPacket qp;
         if(data == null){
-//            data = new byte[8];
-//            ByteBuffer.wrap(data).putLong(self.getId());
             qp = new QuorumPacket(Leader.ACK,zxid,null,null);
         }else{
             ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());
             qp = new QuorumPacket(Leader.ACK,zxid,data,null);
         }
-
-//        QuorumPacket qp = new QuorumPacket(Leader.ACK,zxid,data,null);
 
         try {
             if(parentIsLeader){

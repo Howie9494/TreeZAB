@@ -142,22 +142,20 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
     }
 
     public void forwardAndCommit(long zxid){
-        synchronized (this){
-            if(zxid <= lastCommitZxid){
-                return;
-            }
-            if (pendingTxns.size() == 0) {
-                LOG.warn("Committing " + Long.toHexString(zxid) + " without seeing txn");
-                return;
-            }
-            long firstElementZxid = pendingTxns.element().zxid;
-            if (firstElementZxid != zxid) {
-                LOG.error("Committing zxid 0x" + Long.toHexString(zxid)
-                        + " but next pending txn 0x" + Long.toHexString(firstElementZxid));
-                ServiceUtils.requestSystemExit(ExitCode.UNMATCHED_TXN_COMMIT.getValue());
-            }
-            lastCommitZxid = zxid;
+        if(zxid <= lastCommitZxid){
+            return;
         }
+        if (pendingTxns.size() == 0) {
+            LOG.warn("Committing " + Long.toHexString(zxid) + " without seeing txn");
+            return;
+        }
+        long firstElementZxid = pendingTxns.element().zxid;
+        if (firstElementZxid != zxid) {
+            LOG.error("Committing zxid 0x" + Long.toHexString(zxid)
+                    + " but next pending txn 0x" + Long.toHexString(firstElementZxid));
+            ServiceUtils.requestSystemExit(ExitCode.UNMATCHED_TXN_COMMIT.getValue());
+        }
+        lastCommitZxid = zxid;
         Request request = pendingTxns.remove();
         request.logLatency(ServerMetrics.getMetrics().COMMIT_PROPAGATION_LATENCY);
         forwardCommitProcessor.processRequest(request);
