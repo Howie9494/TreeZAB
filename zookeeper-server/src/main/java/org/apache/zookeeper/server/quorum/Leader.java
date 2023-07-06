@@ -878,13 +878,13 @@ public class Leader extends LearnerMaster {
                 childPeer.add(handler);
                 quorumPeerCnxTreeList[addNo - 1] = handler.getSid();
                 setQuorumPeerCnxTreeParentMap(handler.getSid(),myid);
-                level = 1;
+                level = 2;
                 return addNo;
             }
             Long curSid = handler.getSid();
             quorumPeerCnxTreeList[addNo - 1] = curSid;
             setQuorumPeerCnxTreeParentMap(curSid,quorumPeerCnxTreeList[1]);
-            level = 2;
+            level = 3;
             return addNo;
         } finally {
             lock.unlock();
@@ -1120,7 +1120,6 @@ public class Leader extends LearnerMaster {
         if (outstandingProposals.containsKey(zxid - 1)) {
             return false;
         }
-
         if (!p.treeCommitCheck(ackNum)) {
             return false;
         }

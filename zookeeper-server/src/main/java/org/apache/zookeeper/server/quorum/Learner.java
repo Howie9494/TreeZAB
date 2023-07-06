@@ -294,7 +294,7 @@ public class Learner {
                 try {
                     parentIs.readRecord(pp, "packet");
                     loopRead = false;
-                } catch (SocketTimeoutException e) {
+                } catch (SocketTimeoutException | EOFException e) {
                     //No processing required
                 }
             }

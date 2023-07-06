@@ -329,6 +329,9 @@ public class Follower extends Learner implements ChildMaster{
                 if(tryCommitMap.containsKey(firstElementZxid) &&
                         (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > commitNum)){
                     LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}",firstElementZxid);
+                    if(self.getView().size() == 3 && tryCommitMap.get(firstElementZxid) == level && ackNum == 0){
+                        setTreeAckMap(firstElementZxid,-1L);
+                    }
                     fzk.forwardAndCommit(firstElementZxid);
                     tryCommitMap.remove(firstElementZxid);
                 }
@@ -391,9 +394,26 @@ public class Follower extends Learner implements ChildMaster{
         }
     }
 
+    long lastAckZxid;
+
     public void sendAck(byte[] data,long zxid) {
-        ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());
-        QuorumPacket qp = new QuorumPacket(Leader.ACK,zxid,data,null);
+        synchronized (this){
+            if (zxid <= lastAckZxid){
+                return;
+            }
+            lastAckZxid = zxid;
+        }
+        QuorumPacket qp;
+        if(data == null){
+//            data = new byte[8];
+//            ByteBuffer.wrap(data).putLong(self.getId());
+            qp = new QuorumPacket(Leader.ACK,zxid,null,null);
+        }else{
+            ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());
+            qp = new QuorumPacket(Leader.ACK,zxid,data,null);
+        }
+
+//        QuorumPacket qp = new QuorumPacket(Leader.ACK,zxid,data,null);
 
         try {
             if(parentIsLeader){
@@ -421,7 +441,7 @@ public class Follower extends Learner implements ChildMaster{
                     processPacket(qp);
                 }
             } catch (Exception e) {
-                LOG.error("Exception for reading follower information:{}",e.getMessage());
+                LOG.error("Exception for reading follower information",e);
             }
         }
     }
