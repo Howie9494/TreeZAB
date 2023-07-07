@@ -24,7 +24,7 @@ public class ForwardProposalRequestProcessor implements RequestProcessor {
     @Override
     public void processRequest(Request request) {
         if (zks.getFollower().getChildNum() > 0){
-            LOG.debug("Forward proposal package to child");
+            LOG.debug("Forward proposal package to child, Zxid :{}",Long.toHexString(request.zxid));
             zks.getFollower().forwardProposal(request);
         }
         nextProcessor.processRequest(request);

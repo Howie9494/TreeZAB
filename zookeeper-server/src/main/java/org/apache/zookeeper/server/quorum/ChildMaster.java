@@ -1,7 +1,7 @@
 package org.apache.zookeeper.server.quorum;
 
 import java.net.Socket;
-import java.util.ArrayList;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public interface ChildMaster {
 
@@ -45,7 +45,7 @@ public interface ChildMaster {
 
     abstract void setTreeAckMap(Long zxid,Long sid);
 
-    abstract ArrayList<Long> getTreeAckMap(Long zxid);
+    abstract CopyOnWriteArrayList<Long> getTreeAckMap(Long zxid);
 
     abstract void removeTreeAckMap(Long zxid);
 }

@@ -35,13 +35,12 @@ import java.util.LinkedList;
 import java.util.Set;
 import java.util.Optional;
 import java.util.HashSet;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.apache.jute.Record;
@@ -82,7 +81,7 @@ public class Follower extends Learner implements ChildMaster{
     private int childNum;
     private int level;
 
-    private ConcurrentHashMap<Long,ArrayList<Long>> treeAckMap = new ConcurrentHashMap<Long,ArrayList<Long>>();
+    private ConcurrentHashMap<Long, CopyOnWriteArrayList<Long>> treeAckMap = new ConcurrentHashMap<Long,CopyOnWriteArrayList<Long>>();
 
     private final List<ServerSocket> serverSockets = new LinkedList<>();
 
@@ -256,13 +255,13 @@ public class Follower extends Learner implements ChildMaster{
         return childNum;
     }
 
-    public ArrayList<Long> getTreeAckMap(Long zxid) {
+    public CopyOnWriteArrayList<Long> getTreeAckMap(Long zxid) {
         return treeAckMap.getOrDefault(zxid, null);
     }
 
     public void setTreeAckMap(Long zxid,Long sid) {
         if(!treeAckMap.containsKey(zxid)){
-            ArrayList<Long> sidList = new ArrayList<>();
+            CopyOnWriteArrayList<Long> sidList = new CopyOnWriteArrayList<>();
             sidList.add(sid);
             treeAckMap.put(zxid,sidList);
         }else{
@@ -303,11 +302,12 @@ public class Follower extends Learner implements ChildMaster{
             commitNum = self.getView().size() >> 1;
         }
 
-        if(zxid <= fzk.lastCommitZxid){
-            return;
-        }
-
         synchronized (fzk){
+
+            if(zxid <= fzk.lastCommitZxid){
+                return;
+            }
+
             if(ackNum == -1){
                 tryCommitMap.put(zxid,ackNum);
             }
@@ -323,17 +323,16 @@ public class Follower extends Learner implements ChildMaster{
             if (fzk.pendingTxns.isEmpty()){
                 return;
             }
-            if(fzk.pendingTxns.size() > 0){
-                long firstElementZxid = fzk.pendingTxns.element().zxid;
-                if(tryCommitMap.containsKey(firstElementZxid) &&
-                        (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > commitNum)){
-                    LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
-                    if(self.getView().size() == 3 && tryCommitMap.get(firstElementZxid) == level && ackNum == 0){
-                        setTreeAckMap(firstElementZxid,-1L);
-                    }
-                    fzk.forwardAndCommit(firstElementZxid);
-                    tryCommitMap.remove(firstElementZxid);
+
+            long firstElementZxid = fzk.pendingTxns.element().zxid;
+            if(tryCommitMap.containsKey(firstElementZxid) &&
+                    (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > commitNum)){
+                LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
+                if(self.getView().size() == 3 && tryCommitMap.get(firstElementZxid) == level && ackNum == 0){
+                    setTreeAckMap(firstElementZxid,-1L);
                 }
+                fzk.forwardAndCommit(firstElementZxid);
+                tryCommitMap.remove(firstElementZxid);
             }
         }
     }
@@ -380,8 +379,7 @@ public class Follower extends Learner implements ChildMaster{
     }
 
     public void forwardCommit(Request request) {
-        byte[] data = SerializeUtils.serializeRequest(request);
-        QuorumPacket pp = new QuorumPacket(Leader.COMMIT, request.zxid, data, null);
+        QuorumPacket pp = new QuorumPacket(Leader.COMMIT, request.zxid, null, null);
         sendPacketToChildPeer(pp);
     }
 
@@ -412,9 +410,9 @@ public class Follower extends Learner implements ChildMaster{
 
         try {
             if(parentIsLeader){
-                writePacket(qp,false);
+                writePacket(qp,true);
             }else {
-                writeFollowerPacket(qp,false);
+                writeFollowerPacket(qp,true);
             }
         } catch (IOException e) {
             LOG.error("Exception during packet send");

@@ -22,7 +22,7 @@ public class ForwardCommitRequestProcessor implements RequestProcessor {
     @Override
     public void processRequest(Request request) {
         if(zks.getFollower().getChildNum() > 0){
-            LOG.debug("Forward commit package to child.");
+            LOG.debug("Forward commit package to child. zxid :{}",Long.toHexString(request.zxid));
             zks.getFollower().forwardCommit(request);
         }
         nextProcessor.commit(request);

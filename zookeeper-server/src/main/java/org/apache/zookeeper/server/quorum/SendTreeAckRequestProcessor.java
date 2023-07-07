@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -51,11 +51,6 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
             do {
                 Long zxid =queuedRequests.poll();
                 if(zxid == null){
-                    if(parentIsLeader){
-                        learner.bufferedOutput.flush();
-                    }else{
-                        learner.parentBufferedOutput.flush();
-                    }
                     zxid = queuedRequests.take();
                 }
 
@@ -64,7 +59,7 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
                     LOG.debug("No child, direct reply ack. zxid : {}",Long.toHexString(zxid));
                     follower.sendAck(data,zxid);
                 }else{
-                    ArrayList<Long> sidList = follower.getTreeAckMap(zxid);
+                    CopyOnWriteArrayList<Long> sidList = follower.getTreeAckMap(zxid);
                     if(sidList != null && sidList.get(0) == -1L){
                         LOG.debug("Send ack to parent, cause of more than half. zxid : {}",Long.toHexString(zxid));
                         follower.sendAck(null,zxid);
