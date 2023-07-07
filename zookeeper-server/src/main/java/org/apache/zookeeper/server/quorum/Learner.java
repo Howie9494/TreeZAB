@@ -264,7 +264,7 @@ public class Learner {
                 try {
                     leaderIs.readRecord(pp, "packet");
                     loopRead = false;
-                } catch (SocketTimeoutException | EOFException e) {
+                } catch (IOException e) {
                     //No processing required
                 }
             }

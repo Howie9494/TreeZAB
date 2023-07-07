@@ -298,20 +298,17 @@ public class Follower extends Learner implements ChildMaster{
 
     @Override
     public void tryToFollowerCommit(Long zxid,int ackNum) {
-        if(commitNum == -1){
-            commitNum = self.getView().size() >> 1;
-        }
-
         synchronized (fzk){
-
+            if(commitNum == -1){
+                commitNum = (self.getView().size() >> 1) + 1;
+            }
             if(zxid <= fzk.lastCommitZxid){
                 return;
             }
 
             if(ackNum == -1){
                 tryCommitMap.put(zxid,ackNum);
-            }
-            if(tryCommitMap.containsKey(zxid)){
+            } else if(tryCommitMap.containsKey(zxid)){
                 Integer commitInfo = tryCommitMap.get(zxid);
                 if(commitInfo > 0){
                     tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
@@ -325,10 +322,10 @@ public class Follower extends Learner implements ChildMaster{
             }
 
             long firstElementZxid = fzk.pendingTxns.element().zxid;
-            if(tryCommitMap.containsKey(firstElementZxid) &&
-                    (tryCommitMap.get(firstElementZxid) == -1 || tryCommitMap.get(firstElementZxid) > commitNum)){
+            Integer commitInfo = tryCommitMap.get(firstElementZxid);
+            if(tryCommitMap.containsKey(firstElementZxid) && (commitInfo == -1 || commitInfo > commitNum)){
                 LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
-                if(self.getView().size() == 3 && tryCommitMap.get(firstElementZxid) == level && ackNum == 0){
+                if(self.getView().size() == 3 && commitInfo == level && ackNum == 0){
                     setTreeAckMap(firstElementZxid,-1L);
                 }
                 fzk.forwardAndCommit(firstElementZxid);
