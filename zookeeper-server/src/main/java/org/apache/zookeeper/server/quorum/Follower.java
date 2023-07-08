@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
 import org.apache.jute.Record;
 import org.apache.zookeeper.ZooDefs.OpCode;
@@ -296,43 +297,61 @@ public class Follower extends Learner implements ChildMaster{
 
     private int commitNum = -1;
 
+    private TryFollowerCommitThread tryFollowerCommitThread;
+
     @Override
     public void tryToFollowerCommit(Long zxid,int ackNum) {
-        synchronized (fzk){
-            if(commitNum == -1){
-                commitNum = (self.getView().size() >> 1) + 1;
-            }
-            if(zxid <= fzk.lastCommitZxid){
-                return;
-            }
-
-            if(ackNum == -1){
-                tryCommitMap.put(zxid,ackNum);
-            } else if(tryCommitMap.containsKey(zxid)){
-                Integer commitInfo = tryCommitMap.get(zxid);
-                if(commitInfo > 0){
-                    tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
+        if(commitNum == -1 || tryFollowerCommitThread == null){
+            synchronized (fzk){
+                if(commitNum == -1){
+                    commitNum = (self.getView().size() >> 1) + 1;
                 }
-            }else{
-                tryCommitMap.put(zxid,level + ackNum);
-            }
-
-            if (fzk.pendingTxns.isEmpty()){
-                return;
-            }
-
-            long firstElementZxid = fzk.pendingTxns.element().zxid;
-            Integer commitInfo = tryCommitMap.get(firstElementZxid);
-            if(tryCommitMap.containsKey(firstElementZxid) && (commitInfo == -1 || commitInfo > commitNum)){
-                LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
-                if(self.getView().size() == 3 && commitInfo == level && ackNum == 0){
-                    setTreeAckMap(firstElementZxid,-1L);
+                if (tryFollowerCommitThread == null){
+                    tryFollowerCommitThread = new TryFollowerCommitThread(fzk);
+                    tryFollowerCommitThread.start();
                 }
-                fzk.forwardAndCommit(firstElementZxid);
-                tryCommitMap.remove(firstElementZxid);
             }
         }
+        tryFollowerCommitThread.queueTry(zxid,ackNum);
     }
+
+//    @Override
+//    public void tryToFollowerCommit(Long zxid,int ackNum) {
+//        synchronized (fzk){
+//            if(commitNum == -1){
+//                commitNum = (self.getView().size() >> 1) + 1;
+//            }
+//            if(zxid <= fzk.lastCommitZxid){
+//                return;
+//            }
+//
+//            if(ackNum == -1){
+//                tryCommitMap.put(zxid,ackNum);
+//            } else if(tryCommitMap.containsKey(zxid)){
+//                Integer commitInfo = tryCommitMap.get(zxid);
+//                if(commitInfo > 0){
+//                    tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
+//                }
+//            }else{
+//                tryCommitMap.put(zxid,level + ackNum);
+//            }
+//
+//            if (fzk.pendingTxns.isEmpty()){
+//                return;
+//            }
+//
+//            long firstElementZxid = fzk.pendingTxns.element().zxid;
+//            Integer commitInfo = tryCommitMap.get(firstElementZxid);
+//            if(tryCommitMap.containsKey(firstElementZxid) && (commitInfo == -1 || commitInfo > commitNum)){
+//                LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
+//                if(self.getView().size() == 3 && commitInfo == level && ackNum == 0){
+//                    setTreeAckMap(firstElementZxid,-1L);
+//                }
+//                fzk.forwardAndCommit(firstElementZxid);
+//                tryCommitMap.remove(firstElementZxid);
+//            }
+//        }
+//    }
 
     @Override
     public void registerChildHandlerBean(ChildHandler childHandler, Socket socket) {
@@ -413,6 +432,73 @@ public class Follower extends Learner implements ChildMaster{
             }
         } catch (IOException e) {
             LOG.error("Exception during packet send");
+        }
+    }
+
+    class TryFollowerCommitThread extends ZooKeeperCriticalThread{
+
+        class CommitInfo{
+            long zxid;
+            int ackNum;
+
+            public CommitInfo(long zxid, int ackNum) {
+                this.zxid = zxid;
+                this.ackNum = ackNum;
+            }
+        }
+
+        private LinkedBlockingQueue<CommitInfo> tryCommitQueue = new LinkedBlockingQueue<CommitInfo>();
+
+        TryFollowerCommitThread(FollowerZooKeeperServer fzk) {
+            super("TryFollowerCommitThread:" + fzk.getServerId(), fzk.getZooKeeperServerListener());
+        }
+
+        @Override
+        public void run() {
+            try {
+                while (true) {
+                    CommitInfo commitInfo = tryCommitQueue.poll();
+                    if(commitInfo == null){
+                        commitInfo = tryCommitQueue.take();
+                    }
+                    if(commitInfo.zxid <= fzk.lastCommitZxid){
+                        continue;
+                    }
+
+                    if(commitInfo.ackNum == -1){
+                        tryCommitMap.put(commitInfo.zxid,commitInfo.ackNum);
+                    } else if(tryCommitMap.containsKey(commitInfo.zxid)){
+                        Integer ackNum = tryCommitMap.get(commitInfo.zxid);
+                        if(ackNum > 0){
+                            tryCommitMap.put(commitInfo.zxid,ackNum + commitInfo.ackNum);
+                        }
+                    }else{
+                        tryCommitMap.put(commitInfo.zxid,level + commitInfo.ackNum);
+                    }
+                    if (fzk.pendingTxns.isEmpty()){
+                        continue;
+                    }
+
+                    long firstElementZxid = fzk.pendingTxns.element().zxid;
+                    if(!tryCommitMap.containsKey(firstElementZxid)){
+                        LOG.error("Attempted commit failed to commit non-existent transaction");
+                        continue;
+                    }
+
+                    Integer ackNum = tryCommitMap.get(firstElementZxid);
+                    if(ackNum == -1 || ackNum >= commitNum){
+                        LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
+                        fzk.forwardAndCommit(firstElementZxid);
+                        tryCommitMap.remove(firstElementZxid);
+                    }
+                }
+            } catch (InterruptedException e) {
+                LOG.error("Exception for Follower try to commit",e);
+            }
+        }
+
+        void queueTry(long zxid,int ackNum){
+            tryCommitQueue.add(new CommitInfo(zxid,ackNum));
         }
     }
 
