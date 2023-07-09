@@ -1192,7 +1192,6 @@ public class Leader extends LearnerMaster {
 
                 p.addAck(ackSid);
             }
-            p.addAck(sid);
 
             boolean hasCommitted;
             hasCommitted = tryToCommit(p, zxid, followerAddr,sids.size(),sid);
