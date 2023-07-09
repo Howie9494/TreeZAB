@@ -24,7 +24,6 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.util.Date;
 import java.util.Iterator;
@@ -32,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
+import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -357,6 +357,9 @@ public class LearnerHandler extends ZooKeeperThread {
                 if (p.getType() == Leader.PROPOSAL) {
                     syncLimitCheck.updateProposal(p.getZxid(), System.nanoTime());
                 }
+                if (p.getType() == Leader.COMMIT){
+                    syncLimitCheck.updateAck(p.getZxid());
+                }
                 if (LOG.isTraceEnabled()) {
                     ZooTrace.logQuorumPacket(LOG, traceMask, 'o', p);
                 }
@@ -672,7 +675,7 @@ public class LearnerHandler extends ZooKeeperThread {
                     try {
                         ia.readRecord(qp, "packet");
                         loopRead = false;
-                    } catch (SocketTimeoutException e) {
+                    } catch (IOException e) {
                         //No processing required
                     }
                 }
@@ -701,9 +704,14 @@ public class LearnerHandler extends ZooKeeperThread {
                     }
                     syncLimitCheck.updateAck(qp.getZxid());
                     if(qp.getData() == null){
-                        learnerMaster.processAck(this.sid,1, qp.getZxid(), sock.getLocalSocketAddress());
+                        learnerMaster.processAck(this.sid,null,qp.getZxid(), sock.getLocalSocketAddress());
                     }else{
-                        learnerMaster.processAck(this.sid,qp.getData().length >> 3, qp.getZxid(), sock.getLocalSocketAddress());
+                        ArrayList<Long> sidList = new ArrayList<>();
+                        ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
+                        for(int i = 0;i < qp.getData().length;i += 8){
+                            sidList.add(wrap.getLong(i));
+                        }
+                        learnerMaster.processAck(this.sid,sidList, qp.getZxid(), sock.getLocalSocketAddress());
                     }
                     break;
                 case Leader.PING:

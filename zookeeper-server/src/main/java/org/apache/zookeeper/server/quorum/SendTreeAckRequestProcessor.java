@@ -54,33 +54,34 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
                     zxid = queuedRequests.take();
                 }
 
-                byte[] data = new byte[(childNum + 1) << 3];
+                byte[] data;
+                if(follower.getParentIsLeader()){
+                    data = new byte[(childNum) << 3];
+                }else{
+                    data = new byte[(childNum + 1) << 3];
+                }
+
                 if(childNum == 0){
                     LOG.debug("No child, direct reply ack. zxid : {}",Long.toHexString(zxid));
                     follower.sendAck(data,zxid);
                 }else{
                     CopyOnWriteArrayList<Long> sidList = follower.getTreeAckMap(zxid);
-                    if(sidList != null && sidList.get(0) == -1L){
-                        LOG.debug("Send ack to parent, cause of more than half. zxid : {}",Long.toHexString(zxid));
-                        follower.sendAck(null,zxid);
-                    }else{
-                        if(sidList == null || sidList.size() != childNum){
-                            synchronized (this){
-                                while(sidList == null || sidList.size() != childNum){
-                                    wait();
-                                    sidList = follower.getTreeAckMap(zxid);
-                                }
+                    if(sidList == null || sidList.size() != childNum){
+                        synchronized (this){
+                            while(sidList == null || sidList.size() != childNum){
+                                wait();
+                                sidList = follower.getTreeAckMap(zxid);
                             }
                         }
-                        ByteBuffer buffer = ByteBuffer.wrap(data);
-                        int index = 0;
-                        for (Long sid : sidList) {
-                            buffer.putLong(index,sid);
-                            index += 8;
-                        }
-                        LOG.debug("Receive ack messages from all children, send ack to parent. zxid : {}",Long.toHexString(zxid));
-                        follower.sendAck(data,zxid);
                     }
+                    ByteBuffer buffer = ByteBuffer.wrap(data);
+                    int index = 0;
+                    for (Long sid : sidList) {
+                        buffer.putLong(index,sid);
+                        index += 8;
+                    }
+                    LOG.debug("Receive ack messages from all children, send ack to parent. zxid : {}",Long.toHexString(zxid));
+                    follower.sendAck(data,zxid);
                 }
                 follower.removeTreeAckMap(zxid);
             }while(stoppedMainLoop);

@@ -420,8 +420,12 @@ public class Follower extends Learner implements ChildMaster{
         if(data == null){
             qp = new QuorumPacket(Leader.ACK,zxid,null,null);
         }else{
-            ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());
-            qp = new QuorumPacket(Leader.ACK,zxid,data,null);
+            if (parentIsLeader){
+                qp = new QuorumPacket(Leader.ACK,zxid,data,null);
+            }else{
+                ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());
+                qp = new QuorumPacket(Leader.ACK,zxid,data,null);
+            }
         }
 
         try {

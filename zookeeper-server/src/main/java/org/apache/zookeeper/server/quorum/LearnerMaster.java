@@ -21,6 +21,7 @@ package org.apache.zookeeper.server.quorum;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.zookeeper.server.Request;
@@ -207,12 +208,12 @@ public abstract class LearnerMaster {
 
     /**
      * handle ack packet
-     * @param sid leader id
-     * @param ackNum tree ack number
+     * @param sid sender sid
+     * @param sids ack servers id
      * @param zxid packet zxid
      * @param localSocketAddress forwarder's address
      */
-    abstract void processAck(long sid,int ackNum, long zxid, SocketAddress localSocketAddress);
+    abstract void processAck(long sid,ArrayList<Long> sids, long zxid, SocketAddress localSocketAddress);
 
     /**
      * mark session as alive

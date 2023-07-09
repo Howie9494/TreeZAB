@@ -1031,7 +1031,7 @@ public class Leader extends LearnerMaster {
     /**
      * @return True if committed, otherwise false.
      **/
-    public synchronized boolean tryToCommit(Proposal p, long zxid, SocketAddress followerAddr) {
+    public synchronized boolean tryToCommit(Proposal p, long zxid, SocketAddress followerAddr,int ackNum,long sid) {
         // make sure that ops are committed in order. With reconfigurations it is now possible
         // that different operations wait for different sets of acks, and we still want to enforce
         // that they are committed in order. Currently we only permit one outstanding reconfiguration
@@ -1093,80 +1093,6 @@ public class Leader extends LearnerMaster {
             informAndActivate(p, designatedLeader);
         } else {
             p.request.logLatency(ServerMetrics.getMetrics().QUORUM_ACK_LATENCY);
-            commit(zxid,0,0);
-            inform(p);
-        }
-        zk.commitProcessor.commit(p.request);
-        if (pendingSyncs.containsKey(zxid)) {
-            for (LearnerSyncRequest r : pendingSyncs.remove(zxid)) {
-                sendSync(r);
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @return True if committed, otherwise false.
-     **/
-    public synchronized boolean tryToCommit(Proposal p,long sid,int ackNum, long zxid, SocketAddress followerAddr) {
-        // make sure that ops are committed in order. With reconfigurations it is now possible
-        // that different operations wait for different sets of acks, and we still want to enforce
-        // that they are committed in order. Currently we only permit one outstanding reconfiguration
-        // such that the reconfiguration and subsequent outstanding ops proposed while the reconfig is
-        // pending all wait for a quorum of old and new config, so it's not possible to get enough acks
-        // for an operation without getting enough acks for preceding ops. But in the future if multiple
-        // concurrent reconfigs are allowed, this can happen.
-        if (outstandingProposals.containsKey(zxid - 1)) {
-            return false;
-        }
-        if (!p.treeCommitCheck(ackNum)) {
-            return false;
-        }
-
-        // commit proposals in order
-        if (zxid != lastCommitted + 1) {
-            LOG.warn(
-                    "Commiting zxid 0x{} from {} noy first!",
-                    Long.toHexString(zxid),
-                    followerAddr);
-            LOG.warn("First is {}", (lastCommitted + 1));
-        }
-
-        outstandingProposals.remove(zxid);
-
-        if (p.request != null) {
-            toBeApplied.add(p);
-        }
-
-        if (p.request == null) {
-            LOG.warn("Going to commit null: {}", p);
-        } else if (p.request.getHdr().getType() == OpCode.reconfig) {
-            LOG.debug("Committing a reconfiguration! {}", outstandingProposals.size());
-
-            //if this server is voter in new config with the same quorum address,
-            //then it will remain the leader
-            //otherwise an up-to-date follower will be designated as leader. This saves
-            //leader election time, unless the designated leader fails
-            Long designatedLeader = getDesignatedLeader(p, zxid);
-
-            QuorumVerifier newQV = p.qvAcksetPairs.get(p.qvAcksetPairs.size() - 1).getQuorumVerifier();
-
-            self.processReconfig(newQV, designatedLeader, zk.getZxid(), true);
-
-            if (designatedLeader != self.getId()) {
-                LOG.info(String.format("Committing a reconfiguration (reconfigEnabled=%s); this leader is not the designated "
-                        + "leader anymore, setting allowedToCommit=false", self.isReconfigEnabled()));
-                allowedToCommit = false;
-            }
-
-            // we're sending the designated leader, and if the leader is changing the followers are
-            // responsible for closing the connection - this way we are sure that at least a majority of them
-            // receive the commit message.
-            commitAndActivate(zxid, designatedLeader);
-            informAndActivate(p, designatedLeader);
-        } else {
-            p.request.logLatency(ServerMetrics.getMetrics().QUORUM_ACK_LATENCY);
             commit(zxid,sid,ackNum);
             inform(p);
         }
@@ -1183,14 +1109,13 @@ public class Leader extends LearnerMaster {
     /**
      * Keep a count of acks that are received by the leader for a particular
      * proposal
-     *
-     * @param sid is the id of the server that sent the ack
-     * @param ackNum is the number of ack received
-     * @param zxid is the zxid of the proposal sent out
-     * @param followerAddr
+     * @param sid sender sid
+     * @param sids ack servers id
+     * @param zxid packet zxid
+     * @param followerAddr forwarder's address
      */
     @Override
-    public synchronized void processAck(long sid,int ackNum, long zxid, SocketAddress followerAddr) {
+    public synchronized void processAck(long sid,ArrayList<Long> sids, long zxid, SocketAddress followerAddr) {
         if (!allowedToCommit) {
             return; // last op committed was a leader change - from now on
         }
@@ -1230,36 +1155,64 @@ public class Leader extends LearnerMaster {
             LOG.warn("Trying to commit future proposal: zxid 0x{} from {}", Long.toHexString(zxid), followerAddr);
             return;
         }
+        if(sids == null){
+            if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
+                p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(sid));
+            }
 
-        if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
-            p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(sid));
-        }
+            p.addAck(sid);
 
-        p.addAck(sid);
+            boolean hasCommitted;
+            hasCommitted = tryToCommit(p, zxid, followerAddr,-2,sid);
 
-        boolean hasCommitted;
-        if(self.getIsTreeCnxEnabled()){
-            hasCommitted = tryToCommit(p,sid,ackNum,zxid,followerAddr);
+            // If p is a reconfiguration, multiple other operations may be ready to be committed,
+            // since operations wait for different sets of acks.
+            // Currently we only permit one outstanding reconfiguration at a time
+            // such that the reconfiguration and subsequent outstanding ops proposed while the reconfig is
+            // pending all wait for a quorum of old and new config, so its not possible to get enough acks
+            // for an operation without getting enough acks for preceding ops. But in the future if multiple
+            // concurrent reconfigs are allowed, this can happen and then we need to check whether some pending
+            // ops may already have enough acks and can be committed, which is what this code does.
+
+            if (hasCommitted && p.request != null && p.request.getHdr().getType() == OpCode.reconfig) {
+                long curZxid = zxid;
+                while (allowedToCommit && hasCommitted && p != null) {
+                    curZxid++;
+                    p = outstandingProposals.get(curZxid);
+                    if (p != null) {
+                        hasCommitted = tryToCommit(p, curZxid, null,-2,sid);
+                    }
+                }
+            }
         }else{
-            hasCommitted = tryToCommit(p, zxid, followerAddr);
-        }
+            for(long ackSid : sids){
+                if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
+                    p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(ackSid));
+                }
 
-        // If p is a reconfiguration, multiple other operations may be ready to be committed,
-        // since operations wait for different sets of acks.
-        // Currently we only permit one outstanding reconfiguration at a time
-        // such that the reconfiguration and subsequent outstanding ops proposed while the reconfig is
-        // pending all wait for a quorum of old and new config, so its not possible to get enough acks
-        // for an operation without getting enough acks for preceding ops. But in the future if multiple
-        // concurrent reconfigs are allowed, this can happen and then we need to check whether some pending
-        // ops may already have enough acks and can be committed, which is what this code does.
+                p.addAck(ackSid);
+            }
 
-        if (hasCommitted && p.request != null && p.request.getHdr().getType() == OpCode.reconfig) {
-            long curZxid = zxid;
-            while (allowedToCommit && hasCommitted && p != null) {
-                curZxid++;
-                p = outstandingProposals.get(curZxid);
-                if (p != null) {
-                    hasCommitted = tryToCommit(p, curZxid, null);
+            boolean hasCommitted;
+            hasCommitted = tryToCommit(p, zxid, followerAddr,sids.size(),sid);
+
+            // If p is a reconfiguration, multiple other operations may be ready to be committed,
+            // since operations wait for different sets of acks.
+            // Currently we only permit one outstanding reconfiguration at a time
+            // such that the reconfiguration and subsequent outstanding ops proposed while the reconfig is
+            // pending all wait for a quorum of old and new config, so its not possible to get enough acks
+            // for an operation without getting enough acks for preceding ops. But in the future if multiple
+            // concurrent reconfigs are allowed, this can happen and then we need to check whether some pending
+            // ops may already have enough acks and can be committed, which is what this code does.
+
+            if (hasCommitted && p.request != null && p.request.getHdr().getType() == OpCode.reconfig) {
+                long curZxid = zxid;
+                while (allowedToCommit && hasCommitted && p != null) {
+                    curZxid++;
+                    p = outstandingProposals.get(curZxid);
+                    if (p != null) {
+                        hasCommitted = tryToCommit(p, curZxid, null,sids.size(),sid);
+                    }
                 }
             }
         }
@@ -1396,7 +1349,7 @@ public class Leader extends LearnerMaster {
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
         if(self.getIsTreeCnxEnabled()){
-            if(ackNum + 1 > self.getView().size() >> 1){
+            if(ackNum + 2 > self.getView().size() >> 1){
                 LOG.debug("Send commit packet to other childPeer");
                 sendPacketToOtherChildPeer(qp,sid);
             }else{

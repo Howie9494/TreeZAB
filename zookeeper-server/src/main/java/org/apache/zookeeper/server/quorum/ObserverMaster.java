@@ -224,7 +224,7 @@ public class ObserverMaster extends LearnerMaster implements Runnable {
     }
 
     @Override
-    void processAck(long sids,int ackNum, long zxid, SocketAddress localSocketAddress) {
+    void processAck(long sid,ArrayList<Long> sids, long zxid, SocketAddress localSocketAddress) {
         if ((zxid & 0xffffffffL) == 0) {
             /*
              * We no longer process NEWLEADER ack by this method. However,

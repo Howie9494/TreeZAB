@@ -76,6 +76,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
     private final ZooKeeperServer zks;
 
     private final RequestProcessor nextProcessor;
+    private RequestProcessor nextProcessor2;
 
     /**
      * Transactions that have been written and are waiting to be flushed to
@@ -90,6 +91,14 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
         this.zks = zks;
         this.nextProcessor = nextProcessor;
         this.toFlush = new ArrayDeque<>(zks.getMaxBatchSize());
+    }
+
+    public SyncRequestProcessor(ZooKeeperServer zks, RequestProcessor nextProcessor,RequestProcessor nextProcessor2) {
+        super("SyncThread:" + zks.getServerId(), zks.getZooKeeperServerListener());
+        this.zks = zks;
+        this.nextProcessor = nextProcessor;
+        this.toFlush = new ArrayDeque<>(zks.getMaxBatchSize());
+        this.nextProcessor2 = nextProcessor2;
     }
 
     /**
@@ -210,6 +219,12 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                             ((Flushable) nextProcessor).flush();
                         }
                     }
+                    if (nextProcessor2 != null) {
+                        nextProcessor2.processRequest(si);
+                        if (nextProcessor2 instanceof Flushable) {
+                            ((Flushable) nextProcessor2).flush();
+                        }
+                    }
                     continue;
                 }
                 toFlush.add(si);
@@ -235,17 +250,25 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
         zks.getZKDatabase().commit();
         ServerMetrics.getMetrics().SYNC_PROCESSOR_FLUSH_TIME.add(Time.currentElapsedTime() - flushStartTime);
 
-        if (this.nextProcessor == null) {
+        if (this.nextProcessor == null && this.nextProcessor2 == null) {
             this.toFlush.clear();
         } else {
             while (!this.toFlush.isEmpty()) {
                 final Request i = this.toFlush.remove();
                 long latency = Time.currentElapsedTime() - i.syncQueueStartTime;
                 ServerMetrics.getMetrics().SYNC_PROCESSOR_QUEUE_AND_FLUSH_TIME.add(latency);
-                this.nextProcessor.processRequest(i);
+                if(this.nextProcessor != null){
+                    this.nextProcessor.processRequest(i);
+                }
+                if(this.nextProcessor2 != null){
+                    this.nextProcessor2.processRequest(i);
+                }
             }
             if (this.nextProcessor instanceof Flushable) {
                 ((Flushable) this.nextProcessor).flush();
+            }
+            if (this.nextProcessor2 instanceof Flushable) {
+                ((Flushable) this.nextProcessor2).flush();
             }
         }
         lastFlushTime = Time.currentElapsedTime();
@@ -267,6 +290,9 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
         }
         if (nextProcessor != null) {
             nextProcessor.shutdown();
+        }
+        if (nextProcessor2 != null) {
+            nextProcessor2.shutdown();
         }
     }
 
