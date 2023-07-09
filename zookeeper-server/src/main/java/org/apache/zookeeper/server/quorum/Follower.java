@@ -262,7 +262,6 @@ public class Follower extends Learner implements ChildMaster{
 
     public void setTreeAckMap(Long zxid,Long sid) {
         if(!treeAckMap.containsKey(zxid)){
-            LOG.info("treeAckMap add zixd:{}",Long.toHexString(zxid));
             CopyOnWriteArrayList<Long> sidList = new CopyOnWriteArrayList<>();
             sidList.add(sid);
             treeAckMap.put(zxid,sidList);
@@ -273,12 +272,7 @@ public class Follower extends Learner implements ChildMaster{
     }
 
     public void removeTreeAckMap(Long zxid){
-        LOG.info("treeAckMap remove zxid:{}",Long.toHexString(zxid));
         treeAckMap.remove(zxid);
-    }
-
-    public void removeSidTreeAckMap(Long zxid,Long sid){
-        treeAckMap.get(zxid).remove(sid);
     }
 
     synchronized void closeSockets() {
@@ -426,7 +420,7 @@ public class Follower extends Learner implements ChildMaster{
         if(data == null){
             qp = new QuorumPacket(Leader.ACK,zxid,null,null);
         }else{
-            if (parentIsLeader || self.getView().size() > 5){
+            if (parentIsLeader){
                 qp = new QuorumPacket(Leader.ACK,zxid,data,null);
             }else{
                 ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());
