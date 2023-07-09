@@ -1049,6 +1049,7 @@ public class Leader extends LearnerMaster {
         if (!p.hasAllQuorums()) {
             return false;
         }
+        LOG.info("leader commit zxid:{},sender sid:{},ackNum:{}",Long.toHexString(zxid),sid,ackNum);
 
         // commit proposals in order
         if (zxid != lastCommitted + 1) {
@@ -1189,10 +1190,11 @@ public class Leader extends LearnerMaster {
                 if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
                     p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(ackSid));
                 }
-
+                LOG.info("leader receive ack zxid:{},sid:{}",Long.toHexString(zxid),sid);
                 p.addAck(ackSid);
             }
             p.addAck(sid);
+            LOG.info("leader receive ack zxid:{},sid:{}",Long.toHexString(zxid),sid);
 
             boolean hasCommitted;
             hasCommitted = tryToCommit(p, zxid, followerAddr,sids.size(),sid);

@@ -262,6 +262,7 @@ public class Follower extends Learner implements ChildMaster{
 
     public void setTreeAckMap(Long zxid,Long sid) {
         if(!treeAckMap.containsKey(zxid)){
+            LOG.info("treeAckMap add zixd:{}",Long.toHexString(zxid));
             CopyOnWriteArrayList<Long> sidList = new CopyOnWriteArrayList<>();
             sidList.add(sid);
             treeAckMap.put(zxid,sidList);
@@ -272,6 +273,7 @@ public class Follower extends Learner implements ChildMaster{
     }
 
     public void removeTreeAckMap(Long zxid){
+        LOG.info("treeAckMap remove zxid:{}",Long.toHexString(zxid));
         treeAckMap.remove(zxid);
     }
 

@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -31,10 +30,6 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
 
     boolean parentIsLeader;
 
-    private Follower follower;
-
-    private int childNum;
-
     /**
      * Incoming requests.
      */
@@ -44,22 +39,13 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
         super("SendTreeAckRequestProcessor:" + zks.getServerId(), zks.getZooKeeperServerListener());
         this.zks = zks;
         this.learner = learner;
-        this.follower = zks.getFollower();
-        this.childNum = follower.getChildNum();
     }
 
     @Override
     public void run() {
-        if(follower.self.getView().size() <= 5){
-            sendTreeAckThreadForLessOrEqualsFive();
-        }else{
-            sendTreeAckThreadForMoreThanFive();
-        }
-
-    }
-
-    private void sendTreeAckThreadForLessOrEqualsFive(){
         try {
+            Follower follower = zks.getFollower();
+            int childNum = follower.getChildNum();
             parentIsLeader = follower.getParentIsLeader();
 
             do {
@@ -99,64 +85,6 @@ public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread impleme
                 }
                 follower.removeTreeAckMap(zxid);
             }while(stoppedMainLoop);
-
-        } catch (Exception e) {
-            handleException(this.getName(), e);
-        }
-    }
-
-    private final HashMap<Long,Integer> ackCountMap = new HashMap<>();
-
-    private void processAck(Long zxid){
-        if(ackCountMap.containsKey(zxid)){
-            Integer ackNum = ackCountMap.get(zxid);
-            if(ackNum + 1 == childNum){
-                ackCountMap.remove(zxid);
-                follower.removeTreeAckMap(zxid);
-            }else{
-                ackCountMap.put(zxid,ackNum + 1);
-            }
-        }else{
-            ackCountMap.put(zxid,1);
-        }
-    }
-
-    private void sendTreeAckThreadForMoreThanFive(){
-        try {
-            parentIsLeader = follower.getParentIsLeader();
-
-            do {
-                Long zxid =queuedRequests.poll();
-                if(zxid == null){
-                    zxid = queuedRequests.take();
-                }
-
-                byte[] data;
-                data = new byte[8];
-
-                if(childNum == 0){
-                    ByteBuffer.wrap(data).putLong(follower.self.getId());
-                    LOG.debug("No child, direct reply ack. zxid : {}",Long.toHexString(zxid));
-                    follower.sendAck(data,zxid);
-                }else{
-                    CopyOnWriteArrayList<Long> sidList = follower.getTreeAckMap(zxid);
-                    if(sidList == null || sidList.get(0) != 0){
-                        synchronized (this){
-                            while(sidList == null || sidList.get(0) != 0){
-                                wait();
-                                sidList = follower.getTreeAckMap(zxid);
-                            }
-                        }
-                    }
-                    Long sid = sidList.get(0);
-                    ByteBuffer.wrap(data).putLong(sid);
-                    follower.removeSidTreeAckMap(zxid,sid);
-                    processAck(zxid);
-                    LOG.debug("Receive ack messages from children {}, send ack to parent. zxid : {}",sid,Long.toHexString(zxid));
-                    follower.sendAck(data,zxid);
-                }
-            }while(stoppedMainLoop);
-
         } catch (Exception e) {
             handleException(this.getName(), e);
         }
