@@ -275,6 +275,10 @@ public class Follower extends Learner implements ChildMaster{
         treeAckMap.remove(zxid);
     }
 
+    public void removeSidTreeAckMap(Long zxid,Long sid){
+        treeAckMap.get(zxid).remove(sid);
+    }
+
     synchronized void closeSockets() {
         for (ServerSocket serverSocket : serverSockets) {
             if (!serverSocket.isClosed()) {
@@ -420,7 +424,7 @@ public class Follower extends Learner implements ChildMaster{
         if(data == null){
             qp = new QuorumPacket(Leader.ACK,zxid,null,null);
         }else{
-            if (parentIsLeader){
+            if (parentIsLeader || self.getView().size() > 5){
                 qp = new QuorumPacket(Leader.ACK,zxid,data,null);
             }else{
                 ByteBuffer.wrap(data).putLong(childNum << 3,self.getId());

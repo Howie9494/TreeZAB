@@ -87,12 +87,12 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         ackProcessor = new SendTreeAckRequestProcessor(this,getFollower());
         ackProcessor.start();
 //        syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()));
-        if(getFollower().getParentIsLeader()){
+        if(getFollower().getParentIsLeader() && self.getView().size() <= 5){
             syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()),ackProcessor);
-            LOG.debug("parent is leader,use SendAckRequestProcessor and SendTreeAckRequestProcessor.");
+            LOG.debug("Follower use SendAckRequestProcessor and SendTreeAckRequestProcessor.");
        }else{
             syncProcessor = new SyncRequestProcessor(this, ackProcessor);
-            LOG.debug("parent is follower,use SendTreeAckRequestProcessor.");
+            LOG.debug("Follower use SendTreeAckRequestProcessor.");
         }
         syncProcessor.start();
         forwardProposalProcessor = new ForwardProposalRequestProcessor(this,syncProcessor);
