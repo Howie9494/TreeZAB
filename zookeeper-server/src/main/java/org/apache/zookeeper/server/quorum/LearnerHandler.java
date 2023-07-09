@@ -24,6 +24,7 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.util.Date;
 import java.util.Iterator;
@@ -562,7 +563,6 @@ public class LearnerHandler extends ZooKeeperThread {
                     messageTracker.trackSent(Leader.BuildTreeCnx);
                     bufferedOutput.flush();
                 }
-                cnxInfo = null;
             }
 
             peerLastZxid = ss.getLastZxid();
@@ -675,7 +675,7 @@ public class LearnerHandler extends ZooKeeperThread {
                     try {
                         ia.readRecord(qp, "packet");
                         loopRead = false;
-                    } catch (IOException e) {
+                    } catch (SocketTimeoutException e) {
                         //No processing required
                     }
                 }
