@@ -810,6 +810,15 @@ public class Leader extends LearnerMaster {
         return arrayLength - 1;
     }
 
+    private int viewSize = -1;
+
+    private int getViewSize(){
+        if(viewSize == -1){
+            viewSize = self.getView().size();
+        }
+        return viewSize;
+    }
+
     /**
      * Calculate the bounds on the number of children.
      * 1.addNo<=twoChildBound has two children
@@ -818,7 +827,7 @@ public class Leader extends LearnerMaster {
      */
     private int[] getChildNumBound(){
         int size = quorumPeerCnxTreeList.length;
-        int sum = self.getView().size();
+        int sum = getViewSize();
         int nodeNum = (size + 1) >> 2;
         int oneChildBound = size - (nodeNum << 1);
         int twoChildBound;
@@ -842,15 +851,15 @@ public class Leader extends LearnerMaster {
                 //Initialised when nodes are first added
                 if(getQuorumPeerCnxTreeParentMapSize() == 0){
                     childPeer = new ArrayList<>(INITIAL_TREE_FORK);
-                    quorumPeerCnxTreeList = new Long[calLength(self.getView().size())];
+                    quorumPeerCnxTreeList = new Long[calLength(getViewSize())];
                     nodeNum = INITIAL_TREE_FORK;
                     quorumPeerCnxTreeList[0] = self.getId();
                     childNumBound = getChildNumBound();
                 }
                 int childNum;
-                if(self.getView().size() <= 3){
+                if(getViewSize() <= 3){
                     int addNo = buildSpecialCnxTree(handler);
-                    if(self.getView().size() == 2) childNum = addNo == 1 ? 1 : 0;
+                    if(getViewSize() == 2) childNum = addNo == 1 ? 1 : 0;
                     else childNum = addNo == 2 ? 1 : 0;
                 }else{
                     int addNo = buildCnxTree(handler);
@@ -1354,7 +1363,7 @@ public class Leader extends LearnerMaster {
         }
         QuorumPacket qp = new QuorumPacket(Leader.COMMIT, zxid, null, null);
         if(self.getIsTreeCnxEnabled()){
-            if(ackNum + 2 > self.getView().size() >> 1){
+            if(ackNum + 2 > getViewSize() >> 1){
                 LOG.debug("Send commit packet to other childPeer");
                 sendPacketToOtherChildPeer(qp,sid);
             }else{
