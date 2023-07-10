@@ -112,12 +112,20 @@ public class ChildHandler extends ZooKeeperThread {
                 messageTracker.trackReceived(qp.getType());
                 LOG.debug("The ChildHandler receives a message from the child, zxid: {}",Long.toHexString(qp.getZxid()));
                 if(qp.getType() == Leader.ACK){
-                    ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
                     Long zxid = qp.getZxid();
-                    for(int i = 0;i < qp.getData().length;i += 8){
-                        childMaster.setTreeAckMap(zxid,wrap.getLong(i));
+                    if (childMaster.getViewSize() > 5){
+                        childMaster.processAck(zxid,getSid());
+                        childMaster.tryToFollowerCommit(zxid,1);
+                    }else{
+                        ByteBuffer wrap = ByteBuffer.wrap(qp.getData());
+
+                        for(int i = 0;i < qp.getData().length;i += 8){
+                            childMaster.setTreeAckMap(zxid,wrap.getLong(i));
+                        }
+                        childMaster.tryToFollowerCommit(zxid,qp.getData().length >> 3);
                     }
-                    childMaster.tryToFollowerCommit(zxid,qp.getData().length >> 3);
+                }else if(qp.getType() == Leader.ChildInfo){
+                    sid = ByteBuffer.wrap(qp.getData()).getLong();
                 }else{
                     LOG.warn("unexpected quorum packet, type: {}", packetToString(qp));
                     break;

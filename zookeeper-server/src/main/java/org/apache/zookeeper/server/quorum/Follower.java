@@ -181,6 +181,10 @@ public class Follower extends Learner implements ChildMaster{
                             parentIsLeader = false;
                             QuorumServer parentServer = findCnxFollower(parentSid);
                             connectToParent(parentServer.treeAddr,parentServer.hostname);
+                            byte[] childInfo = new byte[8];
+                            ByteBuffer.wrap(childInfo).putLong(self.getId());
+                            QuorumPacket pp = new QuorumPacket(Leader.ChildInfo,0,childInfo,null);
+                            writeFollowerPacket(pp,true);
                         }
                     }
                 }
@@ -304,7 +308,7 @@ public class Follower extends Learner implements ChildMaster{
         if(commitNum == -1 || tryFollowerCommitThread == null){
             synchronized (fzk){
                 if(commitNum == -1){
-                    commitNum = (self.getView().size() >> 1) + 1;
+                    commitNum = (getViewSize() >> 1) + 1;
                 }
                 if (tryFollowerCommitThread == null){
                     tryFollowerCommitThread = new TryFollowerCommitThread(fzk);
@@ -314,44 +318,6 @@ public class Follower extends Learner implements ChildMaster{
         }
         tryFollowerCommitThread.queueTry(zxid,ackNum);
     }
-
-//    @Override
-//    public void tryToFollowerCommit(Long zxid,int ackNum) {
-//        synchronized (fzk){
-//            if(commitNum == -1){
-//                commitNum = (self.getView().size() >> 1) + 1;
-//            }
-//            if(zxid <= fzk.lastCommitZxid){
-//                return;
-//            }
-//
-//            if(ackNum == -1){
-//                tryCommitMap.put(zxid,ackNum);
-//            } else if(tryCommitMap.containsKey(zxid)){
-//                Integer commitInfo = tryCommitMap.get(zxid);
-//                if(commitInfo > 0){
-//                    tryCommitMap.put(zxid,tryCommitMap.get(zxid) + ackNum);
-//                }
-//            }else{
-//                tryCommitMap.put(zxid,level + ackNum);
-//            }
-//
-//            if (fzk.pendingTxns.isEmpty()){
-//                return;
-//            }
-//
-//            long firstElementZxid = fzk.pendingTxns.element().zxid;
-//            Integer commitInfo = tryCommitMap.get(firstElementZxid);
-//            if(tryCommitMap.containsKey(firstElementZxid) && (commitInfo == -1 || commitInfo > commitNum)){
-//                LOG.debug("More than half of the nodes have received the proposal message, follower commit zxid {}", Long.toHexString(firstElementZxid));
-//                if(self.getView().size() == 3 && commitInfo == level && ackNum == 0){
-//                    setTreeAckMap(firstElementZxid,-1L);
-//                }
-//                fzk.forwardAndCommit(firstElementZxid);
-//                tryCommitMap.remove(firstElementZxid);
-//            }
-//        }
-//    }
 
     @Override
     public void registerChildHandlerBean(ChildHandler childHandler, Socket socket) {
@@ -386,6 +352,21 @@ public class Follower extends Learner implements ChildMaster{
     @Override
     public int getTickOfInitialAckDeadline() {
         return self.tick.get() + self.initLimit + self.syncLimit;
+    }
+
+    private int viewSize = 0;
+
+    @Override
+    public int getViewSize() {
+        if(viewSize == 0){
+            viewSize = self.getView().size();
+        }
+        return viewSize;
+    }
+
+    @Override
+    public void processAck(Long zxid, Long sid) {
+        fzk.processAck(zxid,sid);
     }
 
     public void forwardProposal(Request request) {

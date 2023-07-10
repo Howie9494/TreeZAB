@@ -84,15 +84,20 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         commitProcessor.start();
         firstProcessor = new FollowerRequestProcessor(this, commitProcessor);
         ((FollowerRequestProcessor) firstProcessor).start();
-        ackProcessor = new SendTreeAckRequestProcessor(this,getFollower());
-        ackProcessor.start();
+        treeAckProcessor = new SendTreeAckRequestProcessor(this,getFollower());
+        treeAckProcessor.start();
 //        syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()));
-        if(getFollower().getParentIsLeader()){
-            syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()),ackProcessor);
-            LOG.debug("Follower use SendAckRequestProcessor and SendTreeAckRequestProcessor.");
+        if(getFollower().getViewSize() > 5){
+            proAckProcessor = new SendProAckRequestProcessor((getFollower()));
+            syncProcessor = new SyncRequestProcessor(this,proAckProcessor);
+            LOG.info("Follower use SendProAckRequestProcessor.");
+        } else if(getFollower().getParentIsLeader()){
+            proAckProcessor = new SendProAckRequestProcessor((getFollower()));
+            syncProcessor = new SyncRequestProcessor(this, proAckProcessor,treeAckProcessor);
+            LOG.info("Follower use SendProAckRequestProcessor and SendTreeAckRequestProcessor.");
        }else{
-            syncProcessor = new SyncRequestProcessor(this, ackProcessor);
-            LOG.debug("Follower use SendTreeAckRequestProcessor.");
+            syncProcessor = new SyncRequestProcessor(this, treeAckProcessor);
+            LOG.info("Follower use SendTreeAckRequestProcessor.");
         }
         syncProcessor.start();
         forwardProposalProcessor = new ForwardProposalRequestProcessor(this,syncProcessor);
@@ -119,8 +124,12 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         forwardProposalProcessor.processRequest(request);
     }
 
+    public void processAck(Long zxid,Long sid){
+        proAckProcessor.processAck(zxid,sid);
+    }
+
     public void ackListCheck(){
-        ackProcessor.ackListCheck();
+        treeAckProcessor.ackListCheck();
     }
 
     long lastCommitZxid;

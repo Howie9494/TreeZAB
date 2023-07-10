@@ -433,6 +433,11 @@ public class Leader extends LearnerMaster {
      */
     static final int BuildTreeCnx = 20;
 
+    /**
+     * This message sends information to the parent about the child info
+     */
+    static final int ChildInfo = 21;
+
     final ConcurrentMap<Long, Proposal> outstandingProposals = new ConcurrentHashMap<Long, Proposal>();
 
     private final ConcurrentLinkedQueue<Proposal> toBeApplied = new ConcurrentLinkedQueue<Proposal>();
@@ -1189,9 +1194,9 @@ public class Leader extends LearnerMaster {
                 if (ackLoggingFrequency > 0 && (zxid % ackLoggingFrequency == 0)) {
                     p.request.logLatency(ServerMetrics.getMetrics().ACK_LATENCY, Long.toString(ackSid));
                 }
-
                 p.addAck(ackSid);
             }
+            p.addAck(sid);
 
             boolean hasCommitted;
             hasCommitted = tryToCommit(p, zxid, followerAddr,sids.size(),sid);

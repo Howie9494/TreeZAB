@@ -43,6 +43,10 @@ public interface ChildMaster {
      */
     abstract int getTickOfInitialAckDeadline();
 
+    abstract int getViewSize();
+
+    abstract void processAck(Long zxid,Long sid);
+
     abstract void setTreeAckMap(Long zxid,Long sid);
 
     abstract CopyOnWriteArrayList<Long> getTreeAckMap(Long zxid);
