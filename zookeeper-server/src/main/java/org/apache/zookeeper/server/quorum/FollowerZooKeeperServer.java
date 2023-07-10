@@ -84,21 +84,23 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         commitProcessor.start();
         firstProcessor = new FollowerRequestProcessor(this, commitProcessor);
         ((FollowerRequestProcessor) firstProcessor).start();
-        treeAckProcessor = new SendTreeAckRequestProcessor(this,getFollower());
-        treeAckProcessor.start();
+//        treeAckProcessor = new SendTreeAckRequestProcessor(this,getFollower());
+//        treeAckProcessor.start();
 //        syncProcessor = new SyncRequestProcessor(this, new SendAckRequestProcessor(getFollower()));
-        if(getFollower().getViewSize() > 5){
-            proAckProcessor = new SendProAckRequestProcessor((getFollower()));
-            syncProcessor = new SyncRequestProcessor(this,proAckProcessor);
-            LOG.info("Follower use SendProAckRequestProcessor.");
-        } else if(getFollower().getParentIsLeader()){
-            proAckProcessor = new SendProAckRequestProcessor((getFollower()));
-            syncProcessor = new SyncRequestProcessor(this, proAckProcessor,treeAckProcessor);
-            LOG.info("Follower use SendProAckRequestProcessor and SendTreeAckRequestProcessor.");
-       }else{
-            syncProcessor = new SyncRequestProcessor(this, treeAckProcessor);
-            LOG.info("Follower use SendTreeAckRequestProcessor.");
-        }
+//        if(getFollower().getViewSize() > 5){
+//            proAckProcessor = new SendProAckRequestProcessor((getFollower()));
+//            syncProcessor = new SyncRequestProcessor(this,proAckProcessor);
+//            LOG.info("Follower use SendProAckRequestProcessor.");
+//        } else if(getFollower().getParentIsLeader()){
+//            proAckProcessor = new SendProAckRequestProcessor((getFollower()));
+//            syncProcessor = new SyncRequestProcessor(this, proAckProcessor,treeAckProcessor);
+//            LOG.info("Follower use SendProAckRequestProcessor and SendTreeAckRequestProcessor.");
+//       }else{
+//            syncProcessor = new SyncRequestProcessor(this, treeAckProcessor);
+//            LOG.info("Follower use SendTreeAckRequestProcessor.");
+//        }
+        proAckProcessor = new SendProAckRequestProcessor((getFollower()));
+        syncProcessor = new SyncRequestProcessor(this,proAckProcessor);
         syncProcessor.start();
         forwardProposalProcessor = new ForwardProposalRequestProcessor(this,syncProcessor);
         forwardCommitProcessor = new ForwardCommitRequestProcessor(this,commitProcessor);

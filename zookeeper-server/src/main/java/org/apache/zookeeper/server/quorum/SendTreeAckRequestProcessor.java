@@ -17,6 +17,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 /**
  * In TreeCnx, if childNum=0 then send ack directly to parent,
  * if childNum>0 then send ack to parent after receiving all child ack
+ *
+ * Deprecated
  */
 public class SendTreeAckRequestProcessor extends ZooKeeperCriticalThread implements RequestProcessor {
 

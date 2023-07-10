@@ -47,9 +47,18 @@ public interface ChildMaster {
 
     abstract void processAck(Long zxid,Long sid);
 
+    /**
+     * Deprecated
+     */
     abstract void setTreeAckMap(Long zxid,Long sid);
 
+    /**
+     * Deprecated
+     */
     abstract CopyOnWriteArrayList<Long> getTreeAckMap(Long zxid);
 
+    /**
+     * Deprecated
+     */
     abstract void removeTreeAckMap(Long zxid);
 }
