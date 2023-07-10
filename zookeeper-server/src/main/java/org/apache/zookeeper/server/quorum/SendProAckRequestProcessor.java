@@ -51,6 +51,7 @@ public class SendProAckRequestProcessor implements RequestProcessor, Flushable {
     public void processRequest(Request si) {
         if (si.type != OpCode.sync) {
             if(viewSize > 5 && childNum == 0){
+                LOG.debug("zookeeper cluster greater than 5, no child nodes, send ack directly to parent.zxid:{}",Long.toHexString(si.getHdr().getZxid()));
                 QuorumPacket qp = new QuorumPacket(Leader.ACK, si.getHdr().getZxid(), null, null);
                 try {
                     si.logLatency(ServerMetrics.getMetrics().PROPOSAL_ACK_CREATION_LATENCY);
@@ -67,6 +68,7 @@ public class SendProAckRequestProcessor implements RequestProcessor, Flushable {
                     }
                 }
             }else if (viewSize <= 5 && follower.getParentIsLeader()){
+                LOG.debug("zookeeper cluster less than or equal to 5, parent is leader, send ack directly to leader.zxid:{}",Long.toHexString(si.getHdr().getZxid()));
                 QuorumPacket qp = new QuorumPacket(Leader.ACK, si.getHdr().getZxid(), null, null);
                 try {
                     si.logLatency(ServerMetrics.getMetrics().PROPOSAL_ACK_CREATION_LATENCY);
@@ -87,6 +89,7 @@ public class SendProAckRequestProcessor implements RequestProcessor, Flushable {
     }
 
     public void processAck(Long zxid,Long sid){
+        LOG.debug("zookeeper cluster is greater than 5, process the ack of the child node and send it directly to the leader.zxid:{}",Long.toHexString(zxid));
         byte[] data = new byte[8];
         ByteBuffer.wrap(data).putLong(sid);
         QuorumPacket qp = new QuorumPacket(Leader.ACK, zxid, data, null);
